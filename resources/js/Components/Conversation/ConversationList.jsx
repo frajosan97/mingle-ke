@@ -17,14 +17,7 @@ import {
     Image,
     Badge,
 } from "react-bootstrap";
-import {
-    FiSearch,
-    FiMoreVertical,
-    FiPlus,
-    FiCheck,
-    FiCheckCircle,
-    FiClock,
-} from "react-icons/fi";
+import { FiMoreVertical, FiPlus, FiSearch } from "react-icons/fi";
 import { usePage } from "@inertiajs/react";
 import { API } from "@/Lib/Api";
 import {
@@ -40,6 +33,7 @@ const FILTERS = ["All", "Unread"];
 
 /* ────────────────────────────────────────────────
  |  Tick icon for the last message preview
+ |  Bootstrap Icons — class strings, no React imports
  * ──────────────────────────────────────────────── */
 function TickIcon({ status }) {
     if (!status) return null;
@@ -47,39 +41,36 @@ function TickIcon({ status }) {
     // Single grey  → sent
     // Double grey  → delivered
     // Double blue  → read
-    if (status === "sending") {
-        return (
-            <FiClock
-                size={14}
-                className="me-1 flex-shrink-0 text-muted"
-                aria-label="Sending"
-            />
-        );
-    }
-    if (status === "read") {
-        return (
-            <FiCheckCircle
-                size={14}
-                className="me-1 flex-shrink-0 text-info"
-                aria-label="Read"
-            />
-        );
-    }
-    if (status === "delivered") {
-        return (
-            <FiCheckCircle
-                size={14}
-                className="me-1 flex-shrink-0 text-secondary"
-                aria-label="Delivered"
-            />
-        );
-    }
-    // "sent" (default)
+    const iconClass =
+        status === "sending"
+            ? "bi-clock"
+            : status === "read"
+              ? "bi-check2-all"
+              : status === "delivered"
+                ? "bi-check2-all"
+                : "bi-check2"; // "sent" (default)
+
+    const colorClass =
+        status === "read"
+            ? "text-info"
+            : status === "delivered"
+              ? "text-secondary"
+              : "text-muted";
+
+    const label =
+        status === "sending"
+            ? "Sending"
+            : status === "read"
+              ? "Read"
+              : status === "delivered"
+                ? "Delivered"
+                : "Sent";
+
     return (
-        <FiCheck
-            size={14}
-            className="me-1 flex-shrink-0 text-muted"
-            aria-label="Sent"
+        <i
+            className={`bi ${iconClass} ${colorClass} me-1 flex-shrink-0`}
+            style={{ fontSize: 14 }}
+            aria-label={label}
         />
     );
 }
@@ -365,7 +356,6 @@ const ConversationList = forwardRef(function ConversationList(
                                   time: e.created_at,
                                   unreadCount: isMine ? c.unreadCount : 0,
                                   read: true,
-                                  // ⭐ Update tick state
                                   lastMessageOwn: isMine,
                                   lastMessageStatus: isMine ? "sent" : null,
                               }
@@ -374,7 +364,6 @@ const ConversationList = forwardRef(function ConversationList(
                 );
             })
             .listen(".message.read", (e) => {
-                // Only relevant if the row's last message was mine.
                 setConversations((prev) =>
                     prev.map((c) =>
                         c.id === activeId &&
@@ -436,25 +425,23 @@ const ConversationList = forwardRef(function ConversationList(
                                           ? c.unreadCount
                                           : (c.unreadCount ?? 0) + 1,
                                   read: isMine ? c.read : isActive,
-                                  // ⭐ Update tick state
                                   lastMessageOwn: isMine,
                                   lastMessageStatus: isMine ? "sent" : null,
                               }
                             : c,
                     );
                     return [...updated].sort(
-                        (a, b) => new Date(b.time ?? 0) - new Date(a.time ?? 0),
+                        (a, b) =>
+                            new Date(b.time ?? 0) - new Date(a.time ?? 0),
                     );
                 });
             },
 
             onIncomingRead: (e) => {
-                // Clear unread if this receipt is for me.
                 if (e.user_id === user?.id) {
                     clearUnread(e.conversation_id);
                 }
 
-                // If the peer read *my* last message, flip the tick to "read".
                 setConversations((prev) =>
                     prev.map((c) =>
                         c.id === e.conversation_id &&

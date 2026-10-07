@@ -111,7 +111,7 @@ return new class extends Migration {
                 ->default('text');
 
             $table->text('body')->nullable();
-            $table->string('attachment')->nullable();
+            $table->json('attachments')->nullable();
 
             // Coins spent to send this message (null if free)
             $table->unsignedInteger('coins_spent')->nullable();

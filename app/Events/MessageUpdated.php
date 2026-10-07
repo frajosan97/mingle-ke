@@ -2,6 +2,7 @@
 
 namespace App\Events;
 
+use App\Models\Conversation;
 use App\Models\Message;
 use App\Support\ConversationChannels;
 use Illuminate\Broadcasting\InteractsWithSockets;
@@ -18,13 +19,26 @@ class MessageUpdated implements ShouldBroadcast
     {
     }
 
+    /**
+     * @return PrivateChannel[]
+     */
     public function broadcastOn(): array
     {
-        return [
+        $channels = [
             new PrivateChannel(
                 ConversationChannels::conversation($this->message->conversation_id)
             ),
         ];
+
+        $recipientId = $this->recipientId();
+
+        if ($recipientId !== null) {
+            $channels[] = new PrivateChannel(
+                ConversationChannels::user($recipientId)
+            );
+        }
+
+        return $channels;
     }
 
     public function broadcastAs(): string
@@ -39,6 +53,24 @@ class MessageUpdated implements ShouldBroadcast
             'conversation_id' => $this->message->conversation_id,
             'body' => $this->message->body,
             'edited_at' => optional($this->message->edited_at)->toISOString(),
+            // `attachments` intentionally omitted — edits don't change files.
+            // If you ever allow attachment replacement on edit, add:
+            // 'attachments' => $this->message->attachmentList(),
         ];
+    }
+
+    private function recipientId(): ?int
+    {
+        $conversation = $this->message->relationLoaded('conversation')
+            ? $this->message->conversation
+            : Conversation::find($this->message->conversation_id);
+
+        if (!$conversation) {
+            return null;
+        }
+
+        return $conversation->user_one_id === $this->message->sender_id
+            ? $conversation->user_two_id
+            : $conversation->user_one_id;
     }
 }

@@ -3,8 +3,14 @@ import { Link, router } from "@inertiajs/react";
 import { Card, Badge } from "react-bootstrap";
 import { motion } from "framer-motion";
 import { useState } from "react";
-
 import toast from "react-hot-toast";
+
+import {
+    getUserAvatar,
+    isOnline,
+    formatLastSeen,
+    formatDistance,
+} from "@/Helpers/Functions";
 
 const fadeUp = {
     hidden: { opacity: 0, y: 30 },
@@ -15,27 +21,26 @@ const fadeUp = {
     }),
 };
 
-const EscortCard = ({ e, delay = 0 }) => {
+const EscortCard = ({ e, delay = 0, unit = "auto" }) => {
     const hasProfile = !!e.profile;
     const isPremium = e.tier === "premium";
     const [starting, setStarting] = useState(false);
 
-    // Prefer profile avatar; fall back to a deterministic placeholder
-    // so the same user always gets the same image.
-    const avatarSrc =
-        e?.avatar ??
-        (e?.gender
-            ? `https://randomuser.me/api/portraits/${
-                  e.gender === "male" ? "men" : "women"
-              }/${Number(e.id) % 100}.jpg`
-            : `https://i.pravatar.cc/500?u=${encodeURIComponent(e.id)}`);
+    // ── Avatar: single source of truth ──
+    const avatarSrc = getUserAvatar(e, { fallbackName: e?.name ?? "User" });
 
-    // Distance — null when either side has no coords.
-    const distLabel =
-        e.distance_km != null ? `${Number(e.distance_km).toFixed(1)} km` : null;
+    // ── Distance: locale-aware (metric / imperial) ──
+    const distLabel = formatDistance(e.distance_km, { unit });
 
-    // Area — prefer user.area, fall back to profile.area.
+    // ── Area: prefer user.area, fall back to profile.area ──
     const areaLabel = e.area ?? e.profile?.area ?? null;
+
+    // ── Presence: prefer a broadcast presence entry, else flat fields ──
+    const presenceEntry = e.presence ?? e.presenceEntry ?? null;
+    const lastActiveAt = e.last_active_at ?? e.lastActiveAt ?? null;
+    const online = isOnline(lastActiveAt, presenceEntry);
+
+    const presenceTitle = online ? "Online now" : formatLastSeen(lastActiveAt);
 
     const startChat = (evt) => {
         evt.preventDefault();
@@ -85,7 +90,11 @@ const EscortCard = ({ e, delay = 0 }) => {
                         alt={e.name}
                         loading="lazy"
                         onError={(ev) => {
-                            ev.currentTarget.src = `https://i.pravatar.cc/500?u=${encodeURIComponent(e.id)}`;
+                            // Last-resort: deterministic initials avatar
+                            ev.currentTarget.src = getUserAvatar(
+                                { name: e.name ?? "User" },
+                                { fallbackName: "User", size: 500 },
+                            );
                         }}
                     />
                     <div className="card-shine"></div>
@@ -101,8 +110,12 @@ const EscortCard = ({ e, delay = 0 }) => {
                         </Badge>
                     )}
 
-                    {hasProfile && (
-                        <span className="online-dot" title="Online now"></span>
+                    {online && (
+                        <span
+                            className="online-dot"
+                            title={presenceTitle}
+                            aria-label={presenceTitle}
+                        />
                     )}
 
                     {e.profile?.verified && (

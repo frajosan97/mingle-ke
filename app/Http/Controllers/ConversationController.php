@@ -28,6 +28,7 @@ class ConversationController extends Controller
             'activeConversation' => null,
             'messages' => [],
             'filters' => $this->filters($request),
+            'vapidPublicKey' => config('webpush.vapid.public_key'),
         ]);
     }
 

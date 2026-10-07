@@ -92,7 +92,7 @@ class ConversationResource extends JsonResource
             'sender_id' => $m->sender_id,
             'type' => $m->type,
             'body' => $m->body,
-            'attachment' => $m->attachment,
+            'attachments' => $m->attachments,
             'created_at' => optional($m->created_at)->toISOString(),
             'delivered_at' => optional($m->delivered_at)->toISOString(),
 

@@ -15,14 +15,37 @@ import { getUserAvatar } from "@/Helpers/Functions";
 /* ────────────────────────────────────────────────
  |  Helpers
  * ──────────────────────────────────────────────── */
-const isBlobUrl = (url) => typeof url === "string" && url.startsWith("blob:");
 
-const resolveUrl = (attachment) => {
-    if (!attachment) return null;
-    if (isBlobUrl(attachment)) return attachment;
-    if (attachment.startsWith("http")) return attachment;
-    if (attachment.startsWith("/")) return attachment;
-    return `/storage/${attachment}`;
+/**
+ * Resolve a value that may be:
+ *  - a full URL string ("http://...", "blob:...", "/...")
+ *  - a legacy storage path ("conversations/attachments/abc.jpg")
+ *  - an attachment object ({ url, name, mime, size })
+ *  - a legacy attachment object ({ path, name, mime, size })
+ */
+const resolveUrl = (input) => {
+    if (!input) return null;
+
+    // Object form
+    if (typeof input === "object") {
+        if (input.url) return input.url;
+        if (input.path) {
+            if (input.path.startsWith("http")) return input.path;
+            if (input.path.startsWith("/")) return input.path;
+            return `/storage/${input.path}`;
+        }
+        return null;
+    }
+
+    // String form
+    if (typeof input === "string") {
+        if (input.startsWith("http")) return input;
+        if (input.startsWith("blob:")) return input;
+        if (input.startsWith("/")) return input;
+        return `/storage/${input}`;
+    }
+
+    return null;
 };
 
 const fileNameFromUrl = (url, fallback = "attachment") => {
@@ -42,7 +65,12 @@ const triggerDownload = (url, filename) => {
     a.href = url;
     a.download = filename || fileNameFromUrl(url);
     a.rel = "noopener";
-    if (!url.startsWith(window.location.origin) && !url.startsWith("/")) {
+    // Cross-origin downloads need target=_blank to work reliably.
+    if (
+        !url.startsWith(window.location.origin) &&
+        !url.startsWith("/") &&
+        !url.startsWith("blob:")
+    ) {
         a.target = "_blank";
     }
     document.body.appendChild(a);
@@ -134,7 +162,8 @@ const Thumbnail = forwardRef(function Thumbnail(
     { item, active, onClick },
     ref,
 ) {
-    const url = resolveUrl(item.attachment ?? item.url);
+    // item.url is authoritative now — fall back to item.attachment for legacy.
+    const url = item.url ?? resolveUrl(item.attachment);
     const isImage = item.type === "image";
     const isVideo = item.type === "video";
 
@@ -214,17 +243,29 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
     const stripRef = useRef(null);
     const activeThumbRef = useRef(null);
 
-    const current = items[index] ?? null;
-    const src = resolveUrl(current?.attachment ?? current?.url);
-    const filename = current?.filename ?? fileNameFromUrl(src);
+    // Guard: items may be empty.
+    const safeItems = Array.isArray(items) ? items : [];
+    const clampedIndex = Math.max(
+        0,
+        Math.min(index, Math.max(0, safeItems.length - 1)),
+    );
+
+    const current = safeItems[clampedIndex] ?? null;
+    const src = current
+        ? (current.url ?? resolveUrl(current.attachment))
+        : null;
+    const filename =
+        current?.filename ?? (src ? fileNameFromUrl(src) : "attachment");
 
     const next = useCallback(() => {
-        setIndex((i) => (i + 1) % items.length);
-    }, [items.length]);
+        if (safeItems.length <= 1) return;
+        setIndex((i) => (i + 1) % safeItems.length);
+    }, [safeItems.length]);
 
     const prev = useCallback(() => {
-        setIndex((i) => (i - 1 + items.length) % items.length);
-    }, [items.length]);
+        if (safeItems.length <= 1) return;
+        setIndex((i) => (i - 1 + safeItems.length) % safeItems.length);
+    }, [safeItems.length]);
 
     /* Body scroll lock + keyboard navigation */
     useEffect(() => {
@@ -252,7 +293,7 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
     useEffect(() => {
         setZoom(1);
         setMenuOpen(false);
-    }, [index]);
+    }, [clampedIndex]);
 
     /* Auto-scroll active thumbnail into view */
     useEffect(() => {
@@ -261,7 +302,7 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
             inline: "center",
             block: "nearest",
         });
-    }, [index]);
+    }, [clampedIndex]);
 
     const zoomIn = () => setZoom((z) => Math.min(5, +(z + 0.25).toFixed(2)));
     const zoomOut = () => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)));
@@ -272,8 +313,8 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
         if (e.target === e.currentTarget) onClose?.();
     };
 
-    const hasPrev = items.length > 1;
-    const hasNext = items.length > 1;
+    const hasPrev = safeItems.length > 1;
+    const hasNext = safeItems.length > 1;
     const isImage = current?.type === "image";
     const isVideo = current?.type === "video";
 
@@ -456,25 +497,25 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
                     className="position-absolute start-50 translate-middle-x text-white-50 small"
                     style={{ bottom: 12 }}
                 >
-                    {index + 1} of {items.length}
+                    {clampedIndex + 1} of {safeItems.length}
                 </div>
             </div>
 
             {/* ── Thumbnail strip ── */}
-            {items.length > 1 && (
+            {safeItems.length > 1 && (
                 <div
                     ref={stripRef}
                     className="media-viewer-strip flex-shrink-0 d-flex align-items-center gap-2 px-3 py-2 overflow-auto border-top border-secondary border-opacity-25"
                     style={{ background: "rgba(0,0,0,0.35)" }}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    {items.map((item, i) => (
+                    {safeItems.map((item, i) => (
                         <Thumbnail
                             key={item.id ?? i}
                             item={item}
-                            active={i === index}
+                            active={i === clampedIndex}
                             onClick={() => setIndex(i)}
-                            ref={i === index ? activeThumbRef : null}
+                            ref={i === clampedIndex ? activeThumbRef : null}
                         />
                     ))}
                 </div>

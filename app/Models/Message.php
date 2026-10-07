@@ -17,13 +17,14 @@ class Message extends Model
         'sender_id',
         'type',
         'body',
-        'attachment',
+        'attachments',
         'coins_spent',
         'edited_at',
         'delivered_at',
     ];
 
     protected $casts = [
+        'attachments' => 'array',
         'edited_at' => 'datetime',
         'delivered_at' => 'datetime',
         'coins_spent' => 'integer',

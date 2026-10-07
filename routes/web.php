@@ -8,6 +8,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EscortController;
 use App\Http\Controllers\PresenceController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -73,6 +74,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/offline', [PresenceController::class, 'offline'])->name('offline');
         Route::get('/{user}', [PresenceController::class, 'show'])->name('show');
     });
+
+    Route::post('/push/subscribe', [PushSubscriptionController::class, 'store'])
+        ->name('push.subscribe');
+    Route::delete('/push/unsubscribe', [PushSubscriptionController::class, 'destroy'])
+        ->name('push.unsubscribe');
 
     /* Same-origin JSON API — session-authenticated (web middleware). */
     Route::prefix('api')->group(function () {

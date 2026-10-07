@@ -10,6 +10,7 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import EmptyState from "@/Components/Conversation/EmptyState";
 import ConversationList from "@/Components/Conversation/ConversationList";
 import MessageView from "@/Components/Conversation/MessageView";
+import { usePushNotifications } from "@/Hooks/usePushNotifications";
 
 const LIST_WIDTH = 360;
 
@@ -18,6 +19,7 @@ export default function ConversationIndex({
     conversations: initialConversations = null,
     activeConversation = null,
     messages: initialMessages = [],
+    vapidPublicKey = null,
 }) {
     const user = usePage().props.auth?.user;
 
@@ -34,6 +36,24 @@ export default function ConversationIndex({
         selectedConversation?.id,
         user?.id,
     );
+
+    const { permission, subscribed, subscribe } =
+        usePushNotifications(vapidPublicKey);
+
+    // Ask once, after the user has had a moment on the page.
+    useEffect(() => {
+        if (!vapidPublicKey) return;
+        if (permission !== "default") return;
+        if (sessionStorage.getItem("push-prompted")) return;
+
+        const t = setTimeout(() => {
+            subscribe().finally(() =>
+                sessionStorage.setItem("push-prompted", "1"),
+            );
+        }, 3000);
+
+        return () => clearTimeout(t);
+    }, [vapidPublicKey, permission, subscribe]);
 
     /* ── Seed messages on navigation ── */
     useEffect(() => {
@@ -189,7 +209,7 @@ export default function ConversationIndex({
         channel
             .listen(".message.sent", handleIncomingMessage)
             .listen(".message.read", handleIncomingRead)
-            .listen(".conversation.read", handleConversationRead) // ⭐ NEW
+            .listen(".conversation.read", handleConversationRead)
             .listen(".user.status", (e) => {
                 setOnlineUsers((prev) => ({
                     ...prev,
@@ -243,7 +263,6 @@ export default function ConversationIndex({
                 applyReadReceipt(conversationId, e);
             })
             .listen(".conversation.read", (e) => {
-                // ⭐ Use the bulk handler — not applyReadReceipt.
                 applyConversationRead(conversationId, e);
             })
             .listen(".conversation.typing", (e) => {
@@ -262,26 +281,43 @@ export default function ConversationIndex({
 
     /* ── Send ── */
     const handleSendMessage = useCallback(
-        async ({ conversationId, text, attachment }) => {
+        async ({ conversationId, text, attachments }) => {
             const trimmed = text?.trim();
-            if (!trimmed && !attachment) return;
+
+            // Normalize to array — supports single File or File[].
+            const files = Array.isArray(attachments)
+                ? attachments.filter(Boolean)
+                : attachments
+                  ? [attachments]
+                  : [];
+
+            if (!trimmed && files.length === 0) return;
 
             stopTyping();
 
             const tempId = `temp-${Date.now()}`;
-            const localBlobUrl = attachment
-                ? URL.createObjectURL(attachment)
-                : null;
 
-            const inferredType = attachment
-                ? attachment.type.startsWith("image/")
+            // Create blob URLs for optimistic preview.
+            const blobUrls = files.map((f) => URL.createObjectURL(f));
+
+            // Infer type from the first file.
+            const firstFile = files[0];
+            const inferredType = firstFile
+                ? firstFile.type.startsWith("image/")
                     ? "image"
-                    : attachment.type.startsWith("audio/")
+                    : firstFile.type.startsWith("audio/")
                       ? "audio"
-                      : attachment.type.startsWith("video/")
+                      : firstFile.type.startsWith("video/")
                         ? "video"
                         : "file"
                 : "text";
+
+            const optimisticAttachments = files.map((f, i) => ({
+                url: blobUrls[i],
+                name: f.name,
+                mime: f.type,
+                size: f.size,
+            }));
 
             const optimistic = {
                 id: tempId,
@@ -295,10 +331,10 @@ export default function ConversationIndex({
                 },
                 type: inferredType,
                 body: trimmed || null,
-                attachment: localBlobUrl,
+                attachments: optimisticAttachments,
                 created_at: new Date().toISOString(),
                 status: "sending",
-                uploadPct: attachment ? 0 : undefined,
+                uploadPct: files.length ? 0 : undefined,
                 reads: [],
             };
 
@@ -310,11 +346,15 @@ export default function ConversationIndex({
             try {
                 let response;
 
-                if (attachment) {
+                if (files.length > 0) {
                     const form = new FormData();
                     if (trimmed) form.append("body", trimmed);
-                    form.append("attachment", attachment);
                     form.append("type", inferredType);
+
+                    // ⭐ Backend reads `attachments[]`.
+                    files.forEach((file, i) => {
+                        form.append(`attachments[${i}]`, file, file.name);
+                    });
 
                     response = await axios.post(
                         API.messages.store(conversationId),
@@ -359,8 +399,10 @@ export default function ConversationIndex({
                                   id: serverMessage?.id ?? m.id,
                                   body: serverMessage?.body ?? m.body,
                                   type: serverMessage?.type ?? m.type,
-                                  attachment:
-                                      serverMessage?.attachment ?? m.attachment,
+                                  attachments:
+                                      serverMessage?.attachments ??
+                                      m.attachments ??
+                                      [],
                                   sender_id:
                                       serverMessage?.sender_id ?? m.sender_id,
                                   sender: serverMessage?.sender ?? m.sender,
@@ -377,27 +419,34 @@ export default function ConversationIndex({
                     ),
                 }));
 
-                if (localBlobUrl) URL.revokeObjectURL(localBlobUrl);
+                blobUrls.forEach((u) => URL.revokeObjectURL(u));
 
                 listRef.current?.bumpToTop(conversationId, {
-                    preview: trimmed || "[attachment]",
+                    preview:
+                        trimmed ||
+                        (files.length === 1
+                            ? "[attachment]"
+                            : `[${files.length} attachments]`),
                     time: new Date().toISOString(),
                     lastMessageOwn: true,
                     lastMessageStatus: "sent",
                 });
             } catch (err) {
+                console.error(
+                    "Send failed:",
+                    err.response?.status,
+                    err.response?.data,
+                );
+
                 setMessagesByConv((prev) => ({
                     ...prev,
                     [conversationId]: (prev[conversationId] ?? []).map((m) =>
                         m.id === tempId
-                            ? {
-                                  ...m,
-                                  status: "failed",
-                                  uploadPct: undefined,
-                              }
+                            ? { ...m, status: "failed", uploadPct: undefined }
                             : m,
                     ),
                 }));
+
                 throw err;
             }
         },

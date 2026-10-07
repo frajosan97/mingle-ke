@@ -29,10 +29,10 @@ class EscortResource extends JsonResource
 
             // Public profile subset — only if loaded.
             'profile' => $this->whenLoaded('profile', fn() => $this->profile ? [
-                'headline' => $this->profile->headline,
-                'occupation' => $this->profile->occupation,
-                'languages' => $this->profile->languages,
-                'photos' => $this->profile->photos,
+                'headline' => $this->profile->headline ?? null,
+                'occupation' => $this->profile->occupation ?? null,
+                'languages' => $this->profile->languages ?? null,
+                'photos' => $this->profile->photos ?? null,
             ] : null),
         ];
     }

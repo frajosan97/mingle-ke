@@ -8,7 +8,6 @@ use App\Models\User;
 use App\Services\GeocoderService;
 use App\Support\UserLocation;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 
 class ApiController extends Controller
 {
@@ -34,11 +33,6 @@ class ApiController extends Controller
                     'users.age',
                     'users.gender',
                     'users.last_active_at',
-                    // lat/lng are NOT selected — distance_km is derived below.
-                ])
-                ->with([
-                    // Only the profile fields that are public.
-                    'profile:id,user_id,headline,occupation,languages,photos',
                 ]);
 
             // Exclude the caller from their own discovery list.
@@ -75,27 +69,10 @@ class ApiController extends Controller
                     ->orderByDesc('users.id');
             }
 
-            // Optional filters (safe defaults).
-            if ($search = $request->string('search')->trim()->toString()) {
-                $query->where('users.name', 'like', "%{$search}%");
-            }
-            if ($tier = $request->string('tier')->toString()) {
-                $query->whereIn('users.tier', ['regular', 'premium', 'vvip'])
-                    ->where('users.tier', $tier);
-            }
-            if ($request->boolean('verified')) {
-                $query->where('users.is_verified', true);
-            }
-
             $paginated = $query->paginate(24)->withQueryString();
 
             return EscortResource::collection($paginated);
         } catch (\Throwable $th) {
-            Log::error('Failed to load escorts', [
-                'err' => $th->getMessage(),
-                'trace' => $th->getTraceAsString(),
-            ]);
-
             return response()->json([
                 'message' => 'Failed to load escorts.',
             ], 500);

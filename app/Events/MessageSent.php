@@ -51,6 +51,12 @@ class MessageSent implements ShouldBroadcast
         $m = $this->message;
         $sender = $m->sender;
 
+        // `attachments` is a JSON-cast array on the model; `attachmentList()`
+        // normalizes it and is safe even if the column is null.
+        $attachments = method_exists($m, 'attachmentList')
+            ? $m->attachmentList()
+            : (array) ($m->attachments ?? []);
+
         return [
             'id' => $m->id,
             'conversation_id' => $m->conversation_id,
@@ -64,7 +70,7 @@ class MessageSent implements ShouldBroadcast
             ],
             'type' => $m->type,
             'body' => $m->body,
-            'attachment' => $m->attachment,
+            'attachments' => $attachments,
             'coins_spent' => $m->coins_spent,
             'created_at' => optional($m->created_at)->toISOString(),
             'edited_at' => optional($m->edited_at)->toISOString(),

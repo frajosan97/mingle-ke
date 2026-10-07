@@ -34,7 +34,7 @@ class ConversationService
                         'messages.sender_id',
                         'messages.type',
                         'messages.body',
-                        'messages.attachment',
+                        'messages.attachments',
                         'messages.created_at',
                         'messages.delivered_at',
                     )

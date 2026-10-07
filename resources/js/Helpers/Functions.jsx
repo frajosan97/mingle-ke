@@ -111,6 +111,69 @@ export function isOnline(lastActiveAt, presenceEntry) {
 }
 
 /* ─────────────────────────────────────────────
+ |  Distance
+ * ───────────────────────────────────────────── */
+
+const METERS_PER_MILE = 1609.344;
+
+/**
+ * Detect the user's preferred unit system from the browser locale.
+ * US, Liberia and Myanmar → imperial; everyone else → metric.
+ */
+export function getUnitSystem() {
+    if (typeof navigator === "undefined") return "metric";
+    const locale = navigator.language || "en";
+    const region = locale.split("-")[1]?.toUpperCase();
+    return ["US", "LR", "MM"].includes(region) ? "imperial" : "metric";
+}
+
+/**
+ * Human-friendly distance.
+ *
+ * @param {number|null|undefined} km
+ *   Distance in kilometers (as delivered by the backend).
+ * @param {object} [options]
+ * @param {"metric"|"imperial"|"auto"} [options.unit="auto"]
+ *   Which unit family to render in. "auto" uses the browser locale.
+ * @param {boolean} [options.compact=true]
+ *   When true, prefers the shortest readable form.
+ *
+ * @returns {string|null} Formatted distance, or null when the input
+ *   is missing / non-finite / negative (caller should skip rendering).
+ */
+export function formatDistance(km, options = {}) {
+    const { unit = "auto", compact = true } = options;
+
+    const n = Number(km);
+    if (!Number.isFinite(n) || n < 0) return null;
+
+    const system = unit === "auto" ? getUnitSystem() : unit;
+
+    if (system === "imperial") {
+        const miles = n / (METERS_PER_MILE / 1000); // km → mi
+
+        if (miles < 0.1) return "< 0.1 mi";
+        if (miles < 1) return `${miles.toFixed(1)} mi`;
+        if (miles < 10) return `${miles.toFixed(1)} mi`;
+        if (miles < 100) return `${Math.round(miles)} mi`;
+        return `${Math.round(miles)} mi`;
+    }
+
+    // ── metric ──
+    const meters = n * 1000;
+
+    if (meters < 10) return "< 10 m";
+    if (meters < 1000) {
+        const rounded = Math.round(meters / 10) * 10;
+        return `${rounded} m`;
+    }
+    if (!compact) return `${n.toFixed(2)} km`;
+    if (n < 10) return `${n.toFixed(1)} km`;
+    if (n < 100) return `${Math.round(n)} km`;
+    return `${Math.round(n)} km`;
+}
+
+/* ─────────────────────────────────────────────
  |  Avatar
  * ───────────────────────────────────────────── */
 

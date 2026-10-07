@@ -1,16 +1,7 @@
 // resources/js/Components/Conversation/MessageView.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Spinner, Image, Modal, Button } from "react-bootstrap";
-import {
-    FiClock,
-    FiCheck,
-    FiCheckCircle,
-    FiAlertCircle,
-    FiFile,
-    FiMusic,
-    FiVideo,
-    FiDownload,
-} from "react-icons/fi";
+import { FiFile, FiMusic, FiVideo, FiDownload } from "react-icons/fi";
 import {
     formatMessageTime,
     formatDayLabel,
@@ -23,46 +14,98 @@ import MessageComposer from "./MessageComposer";
 import MediaViewer from "./MediaViewer";
 
 /* ────────────────────────────────────────────────
- |  Tick icons
+ |  Tick icons — Bootstrap Icons (font classes)
  * ──────────────────────────────────────────────── */
 const STATUS_ICON = {
-    sending: FiClock,
-    sent: FiCheck,
-    delivered: FiCheckCircle,
-    read: FiCheckCircle,
-    failed: FiAlertCircle,
+    sending: "bi-clock",
+    sent: "bi-check2",
+    delivered: "bi-check2-all",
+    read: "bi-check2-all",
+    failed: "bi-exclamation-circle",
 };
 
 const STATUS_CLASS = {
-    sending: "",
-    sent: "",
-    delivered: "",
+    sending: "text-muted",
+    sent: "text-muted",
+    delivered: "text-muted",
     read: "text-info",
     failed: "text-danger",
 };
 
 /* ────────────────────────────────────────────────
- |  Helpers
+ |  Attachment helpers (new shape-aware)
  * ──────────────────────────────────────────────── */
 
-const isBlobUrl = (url) => typeof url === "string" && url.startsWith("blob:");
+/**
+ * Normalize a single attachment entry to { url, name, mime, size }.
+ * Backend now returns this shape; but this also handles legacy strings
+ * (e.g. an old message stored before the refactor).
+ */
+const normalizeAttachment = (att) => {
+    if (!att) return null;
 
-const resolveAttachmentUrl = (attachment) => {
-    if (!attachment) return null;
-    if (isBlobUrl(attachment)) return attachment;
-    if (attachment.startsWith("http")) return attachment;
-    if (attachment.startsWith("/")) return attachment;
-    return `/storage/${attachment}`;
+    // Legacy string form: "conversations/attachments/abc.jpg"
+    if (typeof att === "string") {
+        return {
+            url:
+                att.startsWith("http") ||
+                att.startsWith("/") ||
+                att.startsWith("blob:")
+                    ? att
+                    : `/storage/${att}`,
+            name: fileNameFromUrl(att),
+            mime: "",
+            size: 0,
+        };
+    }
+
+    // New object form.
+    if (typeof att === "object") {
+        const url = att.url ?? null;
+        return {
+            url,
+            name: att.name ?? fileNameFromUrl(url ?? ""),
+            mime: att.mime ?? "",
+            size: att.size ?? 0,
+        };
+    }
+
+    return null;
+};
+
+/**
+ * Return an array of normalized attachments for a message.
+ * Handles both `message.attachments` (new) and `message.attachment` (legacy).
+ */
+const getAttachments = (msg) => {
+    if (Array.isArray(msg?.attachments) && msg.attachments.length > 0) {
+        return msg.attachments.map(normalizeAttachment).filter(Boolean);
+    }
+    // Fallback to legacy single attachment.
+    if (msg?.attachment) {
+        const one = normalizeAttachment(msg.attachment);
+        return one ? [one] : [];
+    }
+    return [];
+};
+
+const inferTypeFromAttachment = (attachment) => {
+    const mime = attachment?.mime ?? "";
+    const url = attachment?.url ?? "";
+    if (mime.startsWith("image/")) return "image";
+    if (mime.startsWith("video/")) return "video";
+    if (mime.startsWith("audio/")) return "audio";
+    if (/\.(jpe?g|png|gif|webp|avif)(\?|#|$)/i.test(url)) return "image";
+    if (/\.(mp4|webm|mov)(\?|#|$)/i.test(url)) return "video";
+    if (/\.(mp3|wav|ogg|m4a)(\?|#|$)/i.test(url)) return "audio";
+    return "file";
 };
 
 const inferType = (msg) => {
     if (msg.type) return msg.type;
-    const att = msg.attachment;
-    if (!att) return "text";
-    if (/\.(jpe?g|png|gif|webp|avif)$/i.test(att)) return "image";
-    if (/\.(mp3|wav|ogg|m4a)$/i.test(att)) return "audio";
-    if (/\.(mp4|webm|mov)$/i.test(att)) return "video";
-    return "file";
+    const atts = getAttachments(msg);
+    if (atts.length === 0) return "text";
+    return inferTypeFromAttachment(atts[0]);
 };
 
 const fileNameFromUrl = (url, fallback = "attachment") => {
@@ -82,7 +125,12 @@ const triggerDownload = (url, filename) => {
     a.href = url;
     a.download = filename || fileNameFromUrl(url);
     a.rel = "noopener";
-    if (!url.startsWith(window.location.origin) && !url.startsWith("/")) {
+    // Cross-origin downloads need target=_blank to work reliably.
+    if (
+        !url.startsWith(window.location.origin) &&
+        !url.startsWith("/") &&
+        !url.startsWith("blob:")
+    ) {
         a.target = "_blank";
     }
     document.body.appendChild(a);
@@ -123,11 +171,18 @@ const tickStatusFor = (msg, currentUserId, otherUserId) => {
  |  Attachment block
  * ──────────────────────────────────────────────── */
 
-function AttachmentBlock({ type, attachment, own, onOpenMedia, messageId }) {
-    const url = resolveAttachmentUrl(attachment);
-    if (!url) return null;
+function AttachmentBlock({
+    type,
+    attachment,
+    own,
+    onOpenMedia,
+    messageId,
+    index,
+}) {
+    if (!attachment?.url) return null;
 
-    const filename = fileNameFromUrl(url);
+    const { url, name } = attachment;
+    const filename = name || fileNameFromUrl(url);
 
     // ── Image → thumbnail, click opens viewer ──
     if (type === "image") {
@@ -135,7 +190,13 @@ function AttachmentBlock({ type, attachment, own, onOpenMedia, messageId }) {
             <button
                 type="button"
                 onClick={() =>
-                    onOpenMedia?.({ type: "image", url, filename, messageId })
+                    onOpenMedia?.({
+                        type: "image",
+                        url,
+                        filename,
+                        messageId,
+                        index,
+                    })
                 }
                 className="p-0 border-0 bg-transparent d-block message-bubble-media"
                 aria-label="View image"
@@ -162,7 +223,13 @@ function AttachmentBlock({ type, attachment, own, onOpenMedia, messageId }) {
             <button
                 type="button"
                 onClick={() =>
-                    onOpenMedia?.({ type: "video", url, filename, messageId })
+                    onOpenMedia?.({
+                        type: "video",
+                        url,
+                        filename,
+                        messageId,
+                        index,
+                    })
                 }
                 className="p-0 border-0 bg-transparent d-block position-relative message-bubble-media"
                 aria-label="Play video"
@@ -247,14 +314,15 @@ function MessageBubble({
     text,
     time,
     own = false,
-    type = "text",
-    attachment = null,
     status = "sent",
     uploadPct,
     onOpenMedia,
 }) {
-    const StatusIcon = STATUS_ICON[status] ?? FiCheck;
-    const statusClass = STATUS_CLASS[status] ?? "";
+    const statusIconClass = STATUS_ICON[status] ?? "bi-check2";
+    const statusColorClass = STATUS_CLASS[status] ?? "";
+
+    const attachments = getAttachments(message);
+    const type = inferType(message);
 
     return (
         <div
@@ -268,14 +336,20 @@ function MessageBubble({
                 }`}
                 style={{ maxWidth: "70%" }}
             >
-                {attachment && (
-                    <AttachmentBlock
-                        type={type}
-                        attachment={attachment}
-                        own={own}
-                        messageId={message?.id}
-                        onOpenMedia={onOpenMedia}
-                    />
+                {attachments.length > 0 && (
+                    <div className="d-flex flex-column gap-2 mb-1">
+                        {attachments.map((att, i) => (
+                            <AttachmentBlock
+                                key={`${message.id}-att-${i}`}
+                                type={inferTypeFromAttachment(att) || type}
+                                attachment={att}
+                                own={own}
+                                messageId={message?.id}
+                                index={i}
+                                onOpenMedia={onOpenMedia}
+                            />
+                        ))}
+                    </div>
                 )}
 
                 {text && <div className="text-break">{text}</div>}
@@ -307,9 +381,9 @@ function MessageBubble({
                 >
                     <span>{time}</span>
                     {own && (
-                        <StatusIcon
-                            size={14}
-                            className={statusClass}
+                        <i
+                            className={`bi ${statusIconClass} ${statusColorClass}`}
+                            style={{ fontSize: 14 }}
                             aria-hidden="true"
                         />
                     )}
@@ -366,7 +440,6 @@ export default function MessageView({
     typingNames = [],
     isAnyoneTyping = false,
     onlineUsers = {},
-    // Chat header actions
     onClose,
     onClear,
     onDelete,
@@ -387,9 +460,6 @@ export default function MessageView({
     useEffect(() => setIsBlocked(isBlockedProp), [isBlockedProp]);
 
     const [dialog, setDialog] = useState(null);
-
-    // Which media the viewer is currently open on. Shape:
-    //   { id, type, url } | null
     const [media, setMedia] = useState(null);
 
     /* ── Scroll behaviour ── */
@@ -453,27 +523,33 @@ export default function MessageView({
     const mediaItems = useMemo(() => {
         const items = [];
         for (const m of messages) {
-            const type = inferType(m);
-            if (type !== "image" && type !== "video") continue;
-            const url = resolveAttachmentUrl(m.attachment);
-            if (!url) continue;
+            const atts = getAttachments(m);
+            if (atts.length === 0) continue;
 
-            items.push({
-                id: m.id,
-                type,
-                url,
-                attachment: m.attachment,
-                filename: fileNameFromUrl(url),
-                senderId: m.sender_id,
-                senderName:
-                    m.sender_id === currentUserId
-                        ? "You"
-                        : (otherUser?.name ?? conversation?.name ?? "Unknown"),
-                senderAvatar:
-                    m.sender_id === currentUserId
-                        ? undefined
-                        : (otherUser?.avatar ?? conversation?.avatar),
-                createdAt: m.created_at,
+            atts.forEach((att, i) => {
+                const t = inferTypeFromAttachment(att);
+                if (t !== "image" && t !== "video") return;
+                if (!att.url) return;
+
+                items.push({
+                    id: `${m.id}::${i}`,
+                    messageId: m.id,
+                    type: t,
+                    url: att.url,
+                    filename: att.name || fileNameFromUrl(att.url),
+                    senderId: m.sender_id,
+                    senderName:
+                        m.sender_id === currentUserId
+                            ? "You"
+                            : (otherUser?.name ??
+                              conversation?.name ??
+                              "Unknown"),
+                    senderAvatar:
+                        m.sender_id === currentUserId
+                            ? undefined
+                            : (otherUser?.avatar ?? conversation?.avatar),
+                    createdAt: m.created_at,
+                });
             });
         }
         return items;
@@ -530,7 +606,7 @@ export default function MessageView({
     /* ── Media viewer handlers ── */
     const handleOpenMedia = useCallback((payload) => {
         setMedia({
-            id: payload.messageId,
+            id: `${payload.messageId}::${payload.index ?? 0}`,
             type: payload.type,
             url: payload.url,
         });
@@ -594,7 +670,6 @@ export default function MessageView({
                                 currentUserId,
                                 otherUserId,
                             );
-                            const type = inferType(msg);
 
                             return (
                                 <MessageBubble
@@ -603,8 +678,6 @@ export default function MessageView({
                                     text={msg.body}
                                     time={formatMessageTime(msg.created_at)}
                                     own={own}
-                                    type={type}
-                                    attachment={msg.attachment}
                                     status={tick ?? "sent"}
                                     uploadPct={msg.uploadPct}
                                     onOpenMedia={handleOpenMedia}
@@ -644,7 +717,6 @@ export default function MessageView({
                 }
             />
 
-            {/* ── Full-screen media viewer (only when a media item is selected) ── */}
             {media && (
                 <MediaViewer
                     items={mediaItems}
@@ -653,7 +725,6 @@ export default function MessageView({
                 />
             )}
 
-            {/* ── Chat-level confirmation dialogs ── */}
             <ConfirmDialog
                 show={dialog === "clear"}
                 title="Clear chat?"

@@ -32,16 +32,17 @@ import {
 
 const MAX_ROWS = 6;
 const ROW_HEIGHT = 24;
+const DEFAULT_MAX_FILES = 10;
 
 /* ────────────────────────────────────────────────
- |  Attachment preview
+ |  Attachment tile (grid cell)
  * ──────────────────────────────────────────────── */
 
-function AttachmentPreview({ file, onRemove }) {
+function AttachmentTile({ file, onRemove }) {
     const [previewUrl, setPreviewUrl] = useState(null);
 
     useEffect(() => {
-        if (!file?.type.startsWith("image/")) return;
+        if (!file?.type?.startsWith("image/")) return;
         const url = URL.createObjectURL(file);
         setPreviewUrl(url);
         return () => URL.revokeObjectURL(url);
@@ -49,7 +50,8 @@ function AttachmentPreview({ file, onRemove }) {
 
     if (!file) return null;
 
-    const icon = file.type.startsWith("image/")
+    const isImage = file.type.startsWith("image/");
+    const Icon = isImage
         ? FiImage
         : file.type.startsWith("audio/")
           ? FiMusic
@@ -57,47 +59,51 @@ function AttachmentPreview({ file, onRemove }) {
             ? FiVideo
             : FiFile;
 
-    const Icon = icon;
-    const sizeKb = Math.round(file.size / 1024);
+    const sizeKb = Math.max(1, Math.round(file.size / 1024));
 
     return (
-        <div className="message-composer-attachment d-flex align-items-center gap-2 px-3 py-2">
+        <div
+            className="message-composer-attachment-tile position-relative rounded overflow-hidden"
+            style={{ aspectRatio: "1 / 1" }}
+        >
             {previewUrl ? (
                 <Image
                     src={previewUrl}
                     alt=""
-                    rounded
-                    width={40}
-                    height={40}
+                    className="w-100 h-100"
                     style={{ objectFit: "cover" }}
                 />
             ) : (
-                <span
-                    className="message-composer-attachment-icon d-inline-flex align-items-center justify-content-center rounded"
-                    style={{ width: 40, height: 40 }}
-                >
-                    <Icon size={20} aria-hidden="true" />
-                </span>
+                <div className="w-100 h-100 d-flex flex-column align-items-center justify-content-center p-2 text-center">
+                    <Icon size={26} aria-hidden="true" />
+                    <div
+                        className="small text-truncate w-100 mt-1"
+                        title={file.name}
+                    >
+                        {file.name}
+                    </div>
+                    <div className="small text-muted">{sizeKb} KB</div>
+                </div>
             )}
-            <div
-                className="flex-grow-1 overflow-hidden"
-                style={{ minWidth: 0 }}
+
+            {/* Remove button — always on top */}
+            <Button
+                variant="dark"
+                size="sm"
+                className="position-absolute top-0 end-0 m-1 rounded-circle border-0 d-inline-flex align-items-center justify-content-center"
+                style={{ width: 26, height: 26, opacity: 0.85 }}
+                onClick={onRemove}
+                aria-label={`Remove ${file.name}`}
             >
-                <div className="small text-truncate fw-semibold">
+                <FiX size={14} aria-hidden="true" />
+            </Button>
+
+            {/* Filename overlay for image tiles */}
+            {previewUrl && (
+                <div className="message-composer-attachment-caption position-absolute bottom-0 start-0 end-0 px-2 py-1 small text-truncate">
                     {file.name}
                 </div>
-                <div className="small text-muted">{sizeKb} KB</div>
-            </div>
-            <Button
-                variant="light"
-                size="sm"
-                className="rounded-circle border-0 d-inline-flex align-items-center justify-content-center"
-                style={{ width: 32, height: 32 }}
-                onClick={onRemove}
-                aria-label="Remove attachment"
-            >
-                <FiX size={16} aria-hidden="true" />
-            </Button>
+            )}
         </div>
     );
 }
@@ -116,12 +122,13 @@ const MessageComposer = forwardRef(function MessageComposer(
         disabled = false,
         accept = "image/*,video/*,audio/*,.pdf,.doc,.docx,.zip",
         maxBytes = 25 * 1024 * 1024,
+        maxFiles = DEFAULT_MAX_FILES,
         theme = "dark",
     },
     ref,
 ) {
     const [text, setText] = useState("");
-    const [attachment, setAttachment] = useState(null);
+    const [attachments, setAttachments] = useState([]);
     const [showEmoji, setShowEmoji] = useState(false);
     const [sending, setSending] = useState(false);
     const [error, setError] = useState(null);
@@ -138,12 +145,13 @@ const MessageComposer = forwardRef(function MessageComposer(
             focus: () => textareaRef.current?.focus(),
             clear: () => {
                 setText("");
-                setAttachment(null);
+                setAttachments([]);
                 setError(null);
             },
             getText: () => text,
+            getAttachments: () => attachments,
         }),
-        [text],
+        [text, attachments],
     );
 
     /* ── Auto-resize ── */
@@ -190,83 +198,121 @@ const MessageComposer = forwardRef(function MessageComposer(
         onTyping?.();
     }, [onTyping]);
 
-    /* ── Emoji insert ── */
-    const handleEmojiClick = useCallback(
-        (emojiData) => {
-            const emoji = emojiData.emoji;
-            const el = textareaRef.current;
-            if (!el) {
-                setText((t) => t + emoji);
-                return;
-            }
-            const start = el.selectionStart ?? text.length;
-            const end = el.selectionEnd ?? text.length;
-            const next = text.slice(0, start) + emoji + text.slice(end);
-            setText(next);
-            requestAnimationFrame(() => {
-                el.focus();
-                el.selectionStart = el.selectionEnd = start + emoji.length;
+    /* ── Emoji insert (stable callback, reads live DOM value) ── */
+    const handleEmojiClick = useCallback((emojiData) => {
+        const emoji = emojiData?.emoji;
+        if (!emoji) return;
+
+        const el = textareaRef.current;
+
+        if (!el) {
+            setText((t) => t + emoji);
+            return;
+        }
+
+        const current = el.value ?? "";
+        const start = el.selectionStart ?? current.length;
+        const end = el.selectionEnd ?? current.length;
+        const next = current.slice(0, start) + emoji + current.slice(end);
+
+        setText(next);
+
+        requestAnimationFrame(() => {
+            el.focus();
+            const caret = start + emoji.length;
+            el.selectionStart = el.selectionEnd = caret;
+        });
+    }, []);
+
+    /* ── File handling (multi) ── */
+    const addFiles = useCallback(
+        (fileList) => {
+            const incoming = Array.from(fileList ?? []);
+            if (incoming.length === 0) return;
+
+            setError(null);
+
+            setAttachments((prev) => {
+                const next = [...prev];
+                const errors = [];
+
+                for (const file of incoming) {
+                    if (next.length >= maxFiles) {
+                        errors.push(`You can attach up to ${maxFiles} files.`);
+                        break;
+                    }
+                    if (file.size > maxBytes) {
+                        errors.push(
+                            `"${file.name}" is too large. Max ${Math.round(
+                                maxBytes / 1024 / 1024,
+                            )} MB.`,
+                        );
+                        continue;
+                    }
+                    const isDup = next.some(
+                        (f) =>
+                            f.name === file.name &&
+                            f.size === file.size &&
+                            f.type === file.type,
+                    );
+                    if (isDup) continue;
+
+                    next.push(file);
+                }
+
+                if (errors.length > 0) setError(errors.join(" "));
+                return next;
             });
         },
-        [text],
-    );
-
-    /* ── File handling ── */
-    const handleFilePick = useCallback(
-        (file) => {
-            setError(null);
-            if (!file) return;
-            if (file.size > maxBytes) {
-                setError(
-                    `File too large. Max ${Math.round(
-                        maxBytes / 1024 / 1024,
-                    )} MB.`,
-                );
-                return;
-            }
-            setAttachment(file);
-        },
-        [maxBytes],
+        [maxBytes, maxFiles],
     );
 
     const handleFileInputChange = useCallback(
         (e) => {
-            handleFilePick(e.target.files?.[0]);
+            addFiles(e.target.files);
             e.target.value = "";
         },
-        [handleFilePick],
+        [addFiles],
     );
 
     const handleDrop = useCallback(
         (e) => {
             e.preventDefault();
-            handleFilePick(e.dataTransfer.files?.[0]);
+            if (e.dataTransfer?.files?.length) {
+                addFiles(e.dataTransfer.files);
+            }
         },
-        [handleFilePick],
+        [addFiles],
     );
 
     const handleDragOver = useCallback((e) => e.preventDefault(), []);
 
     const handlePaste = useCallback(
         (e) => {
-            for (const item of e.clipboardData?.items ?? []) {
+            const items = e.clipboardData?.items ?? [];
+            const files = [];
+            for (const item of items) {
                 if (item.kind === "file") {
                     const file = item.getAsFile();
-                    if (file) {
-                        e.preventDefault();
-                        handleFilePick(file);
-                        return;
-                    }
+                    if (file) files.push(file);
                 }
             }
+            if (files.length > 0) {
+                e.preventDefault();
+                addFiles(files);
+            }
         },
-        [handleFilePick],
+        [addFiles],
     );
+
+    const removeAttachment = useCallback((index) => {
+        setAttachments((prev) => prev.filter((_, i) => i !== index));
+    }, []);
 
     /* ── Send ── */
     const handleSend = useCallback(async () => {
         if (disabled || sending) return;
-        if (!text.trim() && !attachment) return;
+        if (!text.trim() && attachments.length === 0) return;
 
         setSending(true);
         setError(null);
@@ -276,11 +322,11 @@ const MessageComposer = forwardRef(function MessageComposer(
                 onSend?.({
                     conversationId,
                     text: text.trim(),
-                    attachment,
+                    attachments, // ← only the array, no legacy `attachment`
                 }),
             );
             setText("");
-            setAttachment(null);
+            setAttachments([]);
             onStopTyping?.();
             if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
             textareaRef.current?.focus();
@@ -296,7 +342,7 @@ const MessageComposer = forwardRef(function MessageComposer(
         disabled,
         sending,
         text,
-        attachment,
+        attachments,
         onSend,
         conversationId,
         onStopTyping,
@@ -328,7 +374,9 @@ const MessageComposer = forwardRef(function MessageComposer(
     );
 
     const canSend =
-        !disabled && !sending && (text.trim().length > 0 || !!attachment);
+        !disabled &&
+        !sending &&
+        (text.trim().length > 0 || attachments.length > 0);
 
     /* ── Cleanup ── */
     useEffect(
@@ -351,11 +399,22 @@ const MessageComposer = forwardRef(function MessageComposer(
                 </div>
             )}
 
-            {attachment && (
-                <AttachmentPreview
-                    file={attachment}
-                    onRemove={() => setAttachment(null)}
-                />
+            {attachments.length > 0 && (
+                <div className="message-composer-attachments px-2 pt-2">
+                    <div className="row g-2">
+                        {attachments.map((file, index) => (
+                            <div
+                                className="col-4 col-sm-3 col-md-2"
+                                key={`${file.name}-${file.size}-${index}`}
+                            >
+                                <AttachmentTile
+                                    file={file}
+                                    onRemove={() => removeAttachment(index)}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                </div>
             )}
 
             <div className="position-relative" ref={emojiWrapRef}>
@@ -394,7 +453,7 @@ const MessageComposer = forwardRef(function MessageComposer(
 
                     <OverlayTrigger
                         placement="top"
-                        overlay={<Tooltip>Attach file</Tooltip>}
+                        overlay={<Tooltip>Attach files</Tooltip>}
                     >
                         <Button
                             variant="light"
@@ -402,7 +461,7 @@ const MessageComposer = forwardRef(function MessageComposer(
                             style={{ width: 40, height: 40 }}
                             onClick={() => fileInputRef.current?.click()}
                             disabled={disabled}
-                            aria-label="Attach file"
+                            aria-label="Attach files"
                         >
                             <FiPaperclip size={20} aria-hidden="true" />
                         </Button>
@@ -412,6 +471,7 @@ const MessageComposer = forwardRef(function MessageComposer(
                         ref={fileInputRef}
                         type="file"
                         accept={accept}
+                        multiple
                         className="d-none"
                         onChange={handleFileInputChange}
                         tabIndex={-1}
