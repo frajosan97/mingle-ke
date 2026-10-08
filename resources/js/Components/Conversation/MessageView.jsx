@@ -1,7 +1,7 @@
 // resources/js/Components/Conversation/MessageView.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Spinner, Image, Modal, Button } from "react-bootstrap";
-import { FiFile, FiMusic, FiVideo, FiDownload } from "react-icons/fi";
+import { Spinner, Modal, Button } from "react-bootstrap";
+// REMOVED: FiFile, FiMusic, FiVideo, FiDownload (moved to MessageBubble)
 import {
     formatMessageTime,
     formatDayLabel,
@@ -12,39 +12,14 @@ import {
 import MessageHeader from "./MessageHeader";
 import MessageComposer from "./MessageComposer";
 import MediaViewer from "./MediaViewer";
+import MessageBubble from "./MessageBubble"; // <--- IMPORT NEW COMPONENT
 
 /* ────────────────────────────────────────────────
- |  Tick icons — Bootstrap Icons (font classes)
- * ──────────────────────────────────────────────── */
-const STATUS_ICON = {
-    sending: "bi-clock",
-    sent: "bi-check2",
-    delivered: "bi-check2-all",
-    read: "bi-check2-all",
-    failed: "bi-exclamation-circle",
-};
-
-const STATUS_CLASS = {
-    sending: "text-muted",
-    sent: "text-muted",
-    delivered: "text-muted",
-    read: "text-info",
-    failed: "text-danger",
-};
-
-/* ────────────────────────────────────────────────
- |  Attachment helpers (new shape-aware)
+ |  Helpers (Kept here for mediaItems logic)
  * ──────────────────────────────────────────────── */
 
-/**
- * Normalize a single attachment entry to { url, name, mime, size }.
- * Backend now returns this shape; but this also handles legacy strings
- * (e.g. an old message stored before the refactor).
- */
 const normalizeAttachment = (att) => {
     if (!att) return null;
-
-    // Legacy string form: "conversations/attachments/abc.jpg"
     if (typeof att === "string") {
         return {
             url:
@@ -53,35 +28,17 @@ const normalizeAttachment = (att) => {
                 att.startsWith("blob:")
                     ? att
                     : `/storage/${att}`,
-            name: fileNameFromUrl(att),
+            name: att.split("/").pop(),
             mime: "",
-            size: 0,
         };
     }
-
-    // New object form.
-    if (typeof att === "object") {
-        const url = att.url ?? null;
-        return {
-            url,
-            name: att.name ?? fileNameFromUrl(url ?? ""),
-            mime: att.mime ?? "",
-            size: att.size ?? 0,
-        };
-    }
-
-    return null;
+    return { url: att.url, name: att.name, mime: att.mime };
 };
 
-/**
- * Return an array of normalized attachments for a message.
- * Handles both `message.attachments` (new) and `message.attachment` (legacy).
- */
 const getAttachments = (msg) => {
     if (Array.isArray(msg?.attachments) && msg.attachments.length > 0) {
         return msg.attachments.map(normalizeAttachment).filter(Boolean);
     }
-    // Fallback to legacy single attachment.
     if (msg?.attachment) {
         const one = normalizeAttachment(msg.attachment);
         return one ? [one] : [];
@@ -95,17 +52,11 @@ const inferTypeFromAttachment = (attachment) => {
     if (mime.startsWith("image/")) return "image";
     if (mime.startsWith("video/")) return "video";
     if (mime.startsWith("audio/")) return "audio";
+    if (mime.includes("pdf")) return "pdf";
     if (/\.(jpe?g|png|gif|webp|avif)(\?|#|$)/i.test(url)) return "image";
     if (/\.(mp4|webm|mov)(\?|#|$)/i.test(url)) return "video";
     if (/\.(mp3|wav|ogg|m4a)(\?|#|$)/i.test(url)) return "audio";
     return "file";
-};
-
-const inferType = (msg) => {
-    if (msg.type) return msg.type;
-    const atts = getAttachments(msg);
-    if (atts.length === 0) return "text";
-    return inferTypeFromAttachment(atts[0]);
 };
 
 const fileNameFromUrl = (url, fallback = "attachment") => {
@@ -117,25 +68,6 @@ const fileNameFromUrl = (url, fallback = "attachment") => {
     } catch {
         return fallback;
     }
-};
-
-const triggerDownload = (url, filename) => {
-    if (!url) return;
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename || fileNameFromUrl(url);
-    a.rel = "noopener";
-    // Cross-origin downloads need target=_blank to work reliably.
-    if (
-        !url.startsWith(window.location.origin) &&
-        !url.startsWith("/") &&
-        !url.startsWith("blob:")
-    ) {
-        a.target = "_blank";
-    }
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
 };
 
 const groupByDay = (messages) => {
@@ -161,242 +93,14 @@ const tickStatusFor = (msg, currentUserId, otherUserId) => {
     const readByOther =
         otherUserId != null &&
         (msg.reads ?? []).some((r) => r.user_id === otherUserId);
-
     if (readByOther) return "read";
     if (msg.delivered_at) return "delivered";
     return "sent";
 };
 
 /* ────────────────────────────────────────────────
- |  Attachment block
- * ──────────────────────────────────────────────── */
-
-function AttachmentBlock({
-    type,
-    attachment,
-    own,
-    onOpenMedia,
-    messageId,
-    index,
-}) {
-    if (!attachment?.url) return null;
-
-    const { url, name } = attachment;
-    const filename = name || fileNameFromUrl(url);
-
-    // ── Image → thumbnail, click opens viewer ──
-    if (type === "image") {
-        return (
-            <button
-                type="button"
-                onClick={() =>
-                    onOpenMedia?.({
-                        type: "image",
-                        url,
-                        filename,
-                        messageId,
-                        index,
-                    })
-                }
-                className="p-0 border-0 bg-transparent d-block message-bubble-media"
-                aria-label="View image"
-            >
-                <Image
-                    src={url}
-                    fluid
-                    rounded
-                    className="message-bubble-image"
-                    style={{
-                        maxWidth: 260,
-                        maxHeight: 320,
-                        objectFit: "cover",
-                        cursor: "zoom-in",
-                    }}
-                />
-            </button>
-        );
-    }
-
-    // ── Video → poster with play overlay, click opens viewer ──
-    if (type === "video") {
-        return (
-            <button
-                type="button"
-                onClick={() =>
-                    onOpenMedia?.({
-                        type: "video",
-                        url,
-                        filename,
-                        messageId,
-                        index,
-                    })
-                }
-                className="p-0 border-0 bg-transparent d-block position-relative message-bubble-media"
-                aria-label="Play video"
-            >
-                <video
-                    src={url}
-                    muted
-                    playsInline
-                    preload="metadata"
-                    style={{
-                        maxWidth: 260,
-                        maxHeight: 320,
-                        borderRadius: 8,
-                        objectFit: "cover",
-                        display: "block",
-                    }}
-                />
-                <span
-                    className="position-absolute top-50 start-50 translate-middle d-inline-flex align-items-center justify-content-center rounded-circle bg-dark bg-opacity-75 text-white"
-                    style={{ width: 44, height: 44 }}
-                    aria-hidden="true"
-                >
-                    <FiVideo size={20} />
-                </span>
-            </button>
-        );
-    }
-
-    // ── Audio / file → pill with download icon ──
-    const Icon = type === "audio" ? FiMusic : FiFile;
-
-    return (
-        <div
-            className={`d-flex align-items-center gap-2 mb-1 message-bubble-attachment ${
-                own ? "text-white" : "text-body"
-            }`}
-        >
-            <span
-                className={`d-inline-flex align-items-center justify-content-center rounded ${
-                    own ? "bg-white bg-opacity-25" : "bg-secondary-subtle"
-                }`}
-                style={{ width: 36, height: 36 }}
-            >
-                <Icon size={18} aria-hidden="true" />
-            </span>
-
-            <span className="flex-grow-1 overflow-hidden">
-                <span className="d-block small fw-semibold text-truncate">
-                    {filename}
-                </span>
-                <span
-                    className={`d-block small ${
-                        own ? "text-white-50" : "text-muted"
-                    }`}
-                >
-                    Click to download
-                </span>
-            </span>
-
-            <button
-                type="button"
-                onClick={() => triggerDownload(url, filename)}
-                className={`btn btn-sm d-inline-flex align-items-center justify-content-center border-0 rounded-circle ${
-                    own ? "text-white" : "text-body"
-                }`}
-                style={{ width: 32, height: 32 }}
-                aria-label={`Download ${filename}`}
-                title="Download"
-            >
-                <FiDownload size={16} />
-            </button>
-        </div>
-    );
-}
-
-/* ────────────────────────────────────────────────
- |  Message bubble
- * ──────────────────────────────────────────────── */
-
-function MessageBubble({
-    message,
-    text,
-    time,
-    own = false,
-    status = "sent",
-    uploadPct,
-    onOpenMedia,
-}) {
-    const statusIconClass = STATUS_ICON[status] ?? "bi-check2";
-    const statusColorClass = STATUS_CLASS[status] ?? "";
-
-    const attachments = getAttachments(message);
-    const type = inferType(message);
-
-    return (
-        <div
-            className={`d-flex mb-1 ${
-                own ? "justify-content-end" : "justify-content-start"
-            }`}
-        >
-            <div
-                className={`p-2 px-3 rounded-3 shadow-sm message-bubble ${
-                    own ? "message-bubble-own" : "message-bubble-other"
-                }`}
-                style={{ maxWidth: "70%" }}
-            >
-                {attachments.length > 0 && (
-                    <div className="d-flex flex-column gap-2 mb-1">
-                        {attachments.map((att, i) => (
-                            <AttachmentBlock
-                                key={`${message.id}-att-${i}`}
-                                type={inferTypeFromAttachment(att) || type}
-                                attachment={att}
-                                own={own}
-                                messageId={message?.id}
-                                index={i}
-                                onOpenMedia={onOpenMedia}
-                            />
-                        ))}
-                    </div>
-                )}
-
-                {text && <div className="text-break">{text}</div>}
-
-                {typeof uploadPct === "number" &&
-                    uploadPct > 0 &&
-                    uploadPct < 100 && (
-                        <div className="small mt-1">
-                            <div className="progress" style={{ height: 4 }}>
-                                <div
-                                    className="progress-bar"
-                                    style={{ width: `${uploadPct}%` }}
-                                />
-                            </div>
-                            <span
-                                className={`small ${
-                                    own ? "text-white-50" : "text-muted"
-                                }`}
-                            >
-                                {uploadPct}%
-                            </span>
-                        </div>
-                    )}
-
-                <div
-                    className={`d-flex align-items-center justify-content-end gap-1 mt-1 small ${
-                        own ? "text-white-50" : "text-muted"
-                    }`}
-                >
-                    <span>{time}</span>
-                    {own && (
-                        <i
-                            className={`bi ${statusIconClass} ${statusColorClass}`}
-                            style={{ fontSize: 14 }}
-                            aria-hidden="true"
-                        />
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-}
-
-/* ────────────────────────────────────────────────
  |  Confirm dialog
  * ──────────────────────────────────────────────── */
-
 function ConfirmDialog({
     show,
     title,
@@ -427,7 +131,6 @@ function ConfirmDialog({
 /* ────────────────────────────────────────────────
  |  Main
  * ──────────────────────────────────────────────── */
-
 export default function MessageView({
     conversation,
     messages = [],
@@ -462,7 +165,6 @@ export default function MessageView({
     const [dialog, setDialog] = useState(null);
     const [media, setMedia] = useState(null);
 
-    /* ── Scroll behaviour ── */
     const handleScroll = useCallback(() => {
         const el = scrollRef.current;
         if (!el) return;
@@ -482,26 +184,16 @@ export default function MessageView({
         bottomRef.current?.scrollIntoView({ behavior: "auto" });
     }, [conversation?.id]);
 
-    /* ── Peer resolution ── */
     const otherUser = useMemo(() => {
         const conv = conversation;
         if (!conv) return null;
-
         let other = conv.other_user ?? conv.otherUser ?? conv.raw?.other_user;
-
         if (!other && currentUserId) {
             const one = conv.raw?.user_one ?? conv.user_one;
             const two = conv.raw?.user_two ?? conv.user_two;
-
-            if (one && two) {
-                other = one.id === currentUserId ? two : one;
-            }
+            if (one && two) other = one.id === currentUserId ? two : one;
         }
-
-        if (!other) {
-            other = conv.raw?.user_one ?? conv.user_one ?? null;
-        }
-
+        if (!other) other = conv.raw?.user_one ?? conv.user_one ?? null;
         return other;
     }, [conversation, currentUserId]);
 
@@ -519,18 +211,15 @@ export default function MessageView({
 
     const grouped = useMemo(() => groupByDay(messages), [messages]);
 
-    /* ── Media collection (all images/videos in the thread) ── */
     const mediaItems = useMemo(() => {
         const items = [];
         for (const m of messages) {
             const atts = getAttachments(m);
             if (atts.length === 0) continue;
-
             atts.forEach((att, i) => {
                 const t = inferTypeFromAttachment(att);
                 if (t !== "image" && t !== "video") return;
                 if (!att.url) return;
-
                 items.push({
                     id: `${m.id}::${i}`,
                     messageId: m.id,
@@ -555,28 +244,23 @@ export default function MessageView({
         return items;
     }, [messages, currentUserId, otherUser, conversation]);
 
-    /* ── Index of the currently-open media ── */
     const mediaIndex = useMemo(() => {
         if (!media?.id) return 0;
         const i = mediaItems.findIndex((m) => m.id === media.id);
         return i >= 0 ? i : 0;
     }, [media, mediaItems]);
 
-    /* ── Header action handlers ── */
     const handleClose = useCallback(() => onClose?.(), [onClose]);
-
     const handleClearRequest = useCallback(() => setDialog("clear"), []);
     const handleClearConfirm = useCallback(() => {
         setDialog(null);
         onClear?.(conversation?.id);
     }, [onClear, conversation?.id]);
-
     const handleDeleteRequest = useCallback(() => setDialog("delete"), []);
     const handleDeleteConfirm = useCallback(() => {
         setDialog(null);
         onDelete?.(conversation?.id);
     }, [onDelete, conversation?.id]);
-
     const handleMuteToggle = useCallback(
         (next) => {
             setIsMuted(next);
@@ -584,7 +268,6 @@ export default function MessageView({
         },
         [onMute, conversation?.id],
     );
-
     const handleBlockToggle = useCallback(
         (next) => {
             if (next) {
@@ -596,14 +279,12 @@ export default function MessageView({
         },
         [onBlock, conversation?.id],
     );
-
     const handleBlockConfirm = useCallback(() => {
         setDialog(null);
         setIsBlocked(true);
         onBlock?.(conversation?.id, true);
     }, [onBlock, conversation?.id]);
 
-    /* ── Media viewer handlers ── */
     const handleOpenMedia = useCallback((payload) => {
         setMedia({
             id: `${payload.messageId}::${payload.index ?? 0}`,
@@ -611,10 +292,8 @@ export default function MessageView({
             url: payload.url,
         });
     }, []);
-
     const handleCloseMedia = useCallback(() => setMedia(null), []);
 
-    /* ── Guard ── */
     if (!conversation) return null;
 
     return (
@@ -641,7 +320,12 @@ export default function MessageView({
                 ref={scrollRef}
                 onScroll={handleScroll}
                 className="message-view-body flex-grow-1 p-3 d-flex flex-column gap-2"
-                style={{ minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
+                style={{
+                    minHeight: 0,
+                    overflowY: "auto",
+                    overflowX: "hidden",
+                    background: "#0b141a",
+                }} // Dark background added
             >
                 {loading && (
                     <div className="text-center text-muted py-3">
@@ -725,6 +409,7 @@ export default function MessageView({
                 />
             )}
 
+            {/* Dialogs */}
             <ConfirmDialog
                 show={dialog === "clear"}
                 title="Clear chat?"
@@ -734,7 +419,6 @@ export default function MessageView({
                 onConfirm={handleClearConfirm}
                 onCancel={() => setDialog(null)}
             />
-
             <ConfirmDialog
                 show={dialog === "delete"}
                 title="Delete chat?"
@@ -744,7 +428,6 @@ export default function MessageView({
                 onConfirm={handleDeleteConfirm}
                 onCancel={() => setDialog(null)}
             />
-
             <ConfirmDialog
                 show={dialog === "block"}
                 title={`Block ${otherUser?.name ?? "this user"}?`}

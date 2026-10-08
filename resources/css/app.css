@@ -3341,3 +3341,472 @@ body {
 .media-viewer-strip::-webkit-scrollbar-track {
     background: transparent;
 }
+
+/* ==================================================
+   14.12 MESSAGE BUBBLE (MessageBubble component)
+   ================================================== */
+
+/* ---------- Row wrapper (alignment) ---------- */
+.message-row {
+    display: flex;
+    width: 100%;
+    margin-bottom: 0.55rem;
+    padding: 0 0.25rem;
+}
+
+.message-row-own {
+    justify-content: flex-end;
+}
+
+.message-row-other {
+    justify-content: flex-start;
+}
+
+/* ---------- Bubble base ---------- */
+.message-bubble {
+    position: relative;
+    max-width: min(75%, 520px);
+    padding: 0.6rem 0.85rem 0.45rem;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    word-break: break-word;
+    transition: transform var(--dur-fast) var(--ease-out);
+}
+
+/* Own bubble — brand gradient */
+.message-bubble-own {
+    color: #fff;
+    background: var(--grad-brand);
+    border: none;
+    border-radius: 16px 16px 4px 16px;
+    box-shadow:
+        var(--shadow-glow-pink),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Other bubble — glass surface */
+.message-bubble-other {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-soft);
+    border-radius: 16px 16px 16px 4px;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+}
+
+.message-bubble-other:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: var(--border-medium);
+}
+
+/* Media-only bubble (image/video, no text) */
+.message-bubble-media {
+    padding: 0.35rem 0.35rem 0.35rem;
+}
+
+.message-bubble-media .message-meta {
+    padding: 0 0.5rem 0.15rem;
+    margin-top: 0.25rem;
+}
+
+/* ---------- Tail (arrow) ---------- */
+.message-tail {
+    position: absolute;
+    bottom: 0;
+    width: 12px;
+    height: 12px;
+    pointer-events: none;
+}
+
+.message-tail-own {
+    right: -6px;
+    background: var(--brand-orange);
+    clip-path: polygon(0 0, 100% 100%, 0 100%);
+    border-bottom-left-radius: 2px;
+}
+
+.message-tail-other {
+    left: -6px;
+    background: rgba(255, 255, 255, 0.05);
+    border-left: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
+    border-bottom-right-radius: 2px;
+}
+
+/* ---------- Attachments container ---------- */
+.message-attachments {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 0.25rem;
+}
+
+/* ---------- Media (image/video) ---------- */
+.message-media-btn {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    display: block;
+    line-height: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: zoom-in;
+    position: relative;
+}
+
+.message-media-img {
+    display: block;
+    max-width: 260px;
+    max-height: 320px;
+    width: 100%;
+    height: auto;
+    object-fit: cover;
+    border-radius: 12px;
+}
+
+.message-video-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    pointer-events: none;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+}
+
+/* ---------- File card (PDF / doc) ---------- */
+.wa-file-card {
+    display: flex;
+    align-items: stretch;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    min-width: 220px;
+}
+
+.message-bubble-own .wa-file-card {
+    background: rgba(0, 0, 0, 0.18);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.wa-file-preview {
+    flex: 0 0 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.04);
+    border-right: 1px solid var(--border-soft);
+}
+
+.message-bubble-own .wa-file-preview {
+    background: rgba(255, 255, 255, 0.12);
+    border-right-color: rgba(255, 255, 255, 0.18);
+}
+
+.wa-file-icon {
+    color: var(--brand-pink);
+}
+
+.message-bubble-own .wa-file-icon {
+    color: #fff;
+}
+
+.wa-file-footer {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.55rem 0.75rem;
+    min-width: 0;
+}
+
+.wa-file-meta {
+    min-width: 0;
+    flex: 1;
+}
+
+.wa-file-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.message-bubble-own .wa-file-title {
+    color: #fff;
+}
+
+.wa-file-subtitle {
+    font-size: 0.7rem;
+    margin-top: 2px;
+    color: var(--text-muted);
+}
+
+.message-bubble-own .wa-file-subtitle {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.wa-file-download {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--dur-fast) var(--ease-out);
+}
+
+.wa-file-download:hover {
+    background: rgba(255, 45, 117, 0.2);
+    color: #fff;
+    transform: scale(1.08);
+}
+
+.message-bubble-own .wa-file-download {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.message-bubble-own .wa-file-download:hover {
+    background: rgba(255, 255, 255, 0.32);
+}
+
+/* ---------- Audio / generic file pill ---------- */
+.wa-file-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-soft);
+    min-width: 220px;
+}
+
+.message-bubble-own .wa-file-pill {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.wa-file-pill-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(255, 45, 117, 0.15);
+    color: var(--brand-pink);
+}
+
+.message-bubble-own .wa-file-pill-icon {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+}
+
+.wa-file-pill-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.wa-file-pill-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.message-bubble-own .wa-file-pill-name {
+    color: #fff;
+}
+
+.wa-file-pill-sub {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.message-bubble-own .wa-file-pill-sub {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+/* ---------- Text body ---------- */
+.message-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ---------- Progress ---------- */
+.message-progress {
+    margin-top: 0.35rem;
+}
+
+.message-progress .progress {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: var(--r-pill);
+}
+
+.message-progress-label {
+    font-size: 0.7rem;
+    opacity: 0.8;
+}
+
+/* ---------- Meta row (time + ticks) ---------- */
+.message-meta {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-top: 0.2rem;
+    font-size: 0.68rem;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0.2px;
+}
+
+.message-meta-own {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.message-meta-other {
+    color: var(--text-dim);
+}
+
+.message-time {
+    display: inline-block;
+}
+
+/* ---------- Tick icons ---------- */
+.message-tick {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+}
+
+.message-tick-stack {
+    display: inline-flex;
+    align-items: center;
+    margin-left: -2px;
+}
+
+.message-tick-default {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.message-meta-other .message-tick-default {
+    color: var(--text-dim);
+}
+
+.message-tick-read {
+    color: #fff;
+}
+
+.message-meta-other .message-tick-read {
+    color: var(--brand-blue-1);
+}
+
+/* ---------- Responsive tweaks ---------- */
+@media (max-width: 575px) {
+    .message-bubble {
+        max-width: 85%;
+        font-size: 0.88rem;
+    }
+
+    .message-media-img {
+        max-width: 220px;
+        max-height: 280px;
+    }
+
+    .wa-file-card,
+    .wa-file-pill {
+        min-width: 0;
+        width: 100%;
+    }
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+    .message-bubble,
+    .message-media-btn,
+    .wa-file-download {
+        transition: none !important;
+        transform: none !important;
+    }
+}
+
+/* Media grid – at least 2 per row */
+.message-media-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--media-cols, 2), 1fr);
+    gap: 4px;
+    width: 100%;
+    max-width: 320px;
+    margin-bottom: 4px;
+}
+
+.message-media-grid .message-media-btn {
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: none;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.message-media-grid .message-media-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    display: block;
+}
+
+/* When only 1 media item, keep it constrained */
+.message-media-grid[style*="--media-cols: 1"] {
+    max-width: 240px;
+}
+
+.message-media-grid[style*="--media-cols: 1"] .message-media-btn {
+    aspect-ratio: auto;
+}
+
+.message-media-grid[style*="--media-cols: 1"] .message-media-img {
+    max-height: 280px;
+    object-fit: contain;
+}
+
+/* Ensure non-media attachments stack vertically */
+.message-attachments {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 4px;
+}

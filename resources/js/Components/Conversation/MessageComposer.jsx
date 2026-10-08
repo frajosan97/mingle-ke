@@ -13,7 +13,6 @@ import {
     Image,
     InputGroup,
     OverlayTrigger,
-    Spinner,
     Tooltip,
 } from "react-bootstrap";
 import EmojiPicker from "emoji-picker-react";
@@ -86,7 +85,6 @@ function AttachmentTile({ file, onRemove }) {
                 </div>
             )}
 
-            {/* Remove button — always on top */}
             <Button
                 variant="dark"
                 size="sm"
@@ -98,7 +96,6 @@ function AttachmentTile({ file, onRemove }) {
                 <FiX size={14} aria-hidden="true" />
             </Button>
 
-            {/* Filename overlay for image tiles */}
             {previewUrl && (
                 <div className="message-composer-attachment-caption position-absolute bottom-0 start-0 end-0 px-2 py-1 small text-truncate">
                     {file.name}
@@ -130,13 +127,17 @@ const MessageComposer = forwardRef(function MessageComposer(
     const [text, setText] = useState("");
     const [attachments, setAttachments] = useState([]);
     const [showEmoji, setShowEmoji] = useState(false);
-    const [sending, setSending] = useState(false);
     const [error, setError] = useState(null);
 
     const textareaRef = useRef(null);
     const fileInputRef = useRef(null);
     const emojiWrapRef = useRef(null);
     const typingTimerRef = useRef(null);
+
+    // Guard so we never fire the same send twice in the same tick
+    // (e.g. Enter + click). This replaces the old `sending` state guard
+    // without blocking the UI while upload happens.
+    const sendingRef = useRef(false);
 
     /* ── Imperative API ── */
     useImperativeHandle(
@@ -198,7 +199,7 @@ const MessageComposer = forwardRef(function MessageComposer(
         onTyping?.();
     }, [onTyping]);
 
-    /* ── Emoji insert (stable callback, reads live DOM value) ── */
+    /* ── Emoji insert ── */
     const handleEmojiClick = useCallback((emojiData) => {
         const emoji = emojiData?.emoji;
         if (!emoji) return;
@@ -309,44 +310,54 @@ const MessageComposer = forwardRef(function MessageComposer(
         setAttachments((prev) => prev.filter((_, i) => i !== index));
     }, []);
 
-    /* ── Send ── */
-    const handleSend = useCallback(async () => {
-        if (disabled || sending) return;
+    /* ── Send — fully silent, fire-and-forget for the UI ── */
+    const handleSend = useCallback(() => {
+        if (disabled || sendingRef.current) return;
         if (!text.trim() && attachments.length === 0) return;
 
-        setSending(true);
-        setError(null);
+        // Snapshot payload.
+        const payload = {
+            conversationId,
+            text: text.trim(),
+            attachments,
+        };
 
-        try {
-            await Promise.resolve(
-                onSend?.({
-                    conversationId,
-                    text: text.trim(),
-                    attachments, // ← only the array, no legacy `attachment`
-                }),
-            );
-            setText("");
-            setAttachments([]);
-            onStopTyping?.();
-            if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-            textareaRef.current?.focus();
-        } catch (err) {
-            setError(
-                err?.response?.data?.message ??
-                    "Failed to send. Please try again.",
-            );
-        } finally {
-            setSending(false);
+        // Latch the send guard for this microtask, then release.
+        sendingRef.current = true;
+
+        // ⭐ Hard reset the input IMMEDIATELY — no spinner, no delay.
+        setError(null);
+        setText("");
+        setAttachments([]);
+        onStopTyping?.();
+        if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+
+        // Collapse the textarea in the same frame.
+        const el = textareaRef.current;
+        if (el) {
+            el.style.height = "auto";
+            el.style.overflowY = "hidden";
         }
-    }, [
-        disabled,
-        sending,
-        text,
-        attachments,
-        onSend,
-        conversationId,
-        onStopTyping,
-    ]);
+        el?.focus();
+
+        // Release the guard on the next macrotask so the very next
+        // keystroke / Enter can fire a new message.
+        queueMicrotask(() => {
+            sendingRef.current = false;
+        });
+
+        // Fire the send in the background. Errors surface via the
+        // parent's own handling (it re-marks the optimistic bubble as
+        // failed). We don't block the composer on it.
+        Promise.resolve()
+            .then(() => onSend?.(payload))
+            .catch((err) => {
+                setError(
+                    err?.response?.data?.message ??
+                        "Failed to send. Please try again.",
+                );
+            });
+    }, [disabled, text, attachments, onSend, conversationId, onStopTyping]);
 
     /* ── Keyboard ── */
     const handleKeyDown = useCallback(
@@ -373,10 +384,11 @@ const MessageComposer = forwardRef(function MessageComposer(
         [notifyTyping, onStopTyping],
     );
 
+    // "Can send" reflects only whether there's content — not whether
+    // a previous send is in flight. This keeps the send button active
+    // so the user can chain messages.
     const canSend =
-        !disabled &&
-        !sending &&
-        (text.trim().length > 0 || attachments.length > 0);
+        !disabled && (text.trim().length > 0 || attachments.length > 0);
 
     /* ── Cleanup ── */
     useEffect(
@@ -509,22 +521,14 @@ const MessageComposer = forwardRef(function MessageComposer(
                             }`}
                             style={{ width: 40, height: 40 }}
                             onClick={handleSend}
-                            disabled={disabled || sending}
+                            disabled={disabled}
                             aria-label={
                                 canSend
                                     ? "Send message"
                                     : "Record voice message"
                             }
                         >
-                            {sending ? (
-                                <Spinner
-                                    as="span"
-                                    animation="border"
-                                    size="sm"
-                                    role="status"
-                                    aria-hidden="true"
-                                />
-                            ) : canSend ? (
+                            {canSend ? (
                                 <FiSend size={18} aria-hidden="true" />
                             ) : (
                                 <FiMic size={18} aria-hidden="true" />
