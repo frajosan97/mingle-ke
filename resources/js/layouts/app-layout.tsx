@@ -11,12 +11,15 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ConversationList from "@/components/conversation/conversation-list";
+import { useAutoLocation } from "@/hooks/use-auto-location";
 
 interface Props extends PropsWithChildren {
     showInbox?: boolean;
 }
 
 export default function AppLayout({ children, showInbox = false }: Props) {
+    useAutoLocation();
+
     const { props, url } = usePage();
     const { auth } = props as {
         auth: { user: { id: number; name: string } | null };

@@ -1,231 +1,244 @@
 // resources/js/pages/welcome.tsx
-import { Head, Link, usePage } from "@inertiajs/react";
+import { Head, Link, router, usePage } from "@inertiajs/react";
 import { useEffect, useRef, useState } from "react";
 import { dashboard, login, register } from "@/routes";
+import ProfileCard, { type Profile } from "@/components/discover/profile-card";
 
 // ============================================================
 // DATA
 // ============================================================
 
-const PREMIUM = [
+const PREMIUM: Profile[] = [
     {
         id: 1,
-        img: 20,
         name: "Wanjiku",
         age: 24,
-        dist: "0.8",
-        area: "Westlands",
-        rating: 4.9,
+        distanceKm: 0.8,
+        locationName: "Westlands",
+        ratingAvg: 4.9,
+        avatarUrl: "https://i.pravatar.cc/400?img=20",
+        verified: true,
+        isVip: true,
+        isEscort: true,
+        online: true,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
     {
         id: 2,
-        img: 45,
         name: "Aisha",
         age: 26,
-        dist: "1.2",
-        area: "Kilimani",
-        rating: 5.0,
+        distanceKm: 1.2,
+        locationName: "Kilimani",
+        ratingAvg: 5.0,
+        avatarUrl: "https://i.pravatar.cc/400?img=45",
+        verified: true,
+        isVip: true,
+        isEscort: true,
+        online: true,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
     {
         id: 5,
-        img: 44,
         name: "Cynthia",
         age: 27,
-        dist: "3.4",
-        area: "Karen",
-        rating: 4.8,
+        distanceKm: 3.4,
+        locationName: "Karen",
+        ratingAvg: 4.8,
+        avatarUrl: "https://i.pravatar.cc/400?img=44",
+        verified: true,
+        isVip: true,
+        isEscort: true,
+        online: false,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
     {
         id: 9,
-        img: 49,
         name: "Zawadi",
         age: 25,
-        dist: "1.9",
-        area: "Kileleshwa",
-        rating: 4.9,
+        distanceKm: 1.9,
+        locationName: "Kileleshwa",
+        ratingAvg: 4.9,
+        avatarUrl: "https://i.pravatar.cc/400?img=49",
+        verified: true,
+        isVip: true,
+        isEscort: true,
+        online: true,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
     {
         id: 11,
-        img: 23,
         name: "Faith",
         age: 22,
-        dist: "0.5",
-        area: "Westlands",
-        rating: 5.0,
+        distanceKm: 0.5,
+        locationName: "Westlands",
+        ratingAvg: 5.0,
+        avatarUrl: "https://i.pravatar.cc/400?img=23",
+        verified: true,
+        isVip: true,
+        isEscort: true,
+        online: true,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
     {
         id: 12,
-        img: 33,
         name: "Mercy",
         age: 29,
-        dist: "2.8",
-        area: "Lavington",
-        rating: 4.7,
-    },
-    {
-        id: 15,
-        img: 28,
-        name: "Grace",
-        age: 24,
-        dist: "1.6",
-        area: "Kilimani",
-        rating: 4.9,
-    },
-    {
-        id: 16,
-        img: 36,
-        name: "Joy",
-        age: 27,
-        dist: "3.2",
-        area: "Karen",
-        rating: 4.8,
-    },
-    {
-        id: 17,
-        img: 41,
-        name: "Eunice",
-        age: 25,
-        dist: "2.4",
-        area: "Parklands",
-        rating: 4.9,
-    },
-    {
-        id: 18,
-        img: 15,
-        name: "Lydia",
-        age: 23,
-        dist: "1.1",
-        area: "Riverside",
-        rating: 5.0,
-    },
-    {
-        id: 23,
-        img: 50,
-        name: "Sarah",
-        age: 26,
-        dist: "2.9",
-        area: "Westlands",
-        rating: 4.8,
-    },
-    {
-        id: 24,
-        img: 43,
-        name: "Nancy",
-        age: 24,
-        dist: "1.7",
-        area: "Kilimani",
-        rating: 4.9,
+        distanceKm: 2.8,
+        locationName: "Lavington",
+        ratingAvg: 4.7,
+        avatarUrl: "https://i.pravatar.cc/400?img=33",
+        verified: true,
+        isVip: true,
+        isEscort: true,
+        online: false,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
 ];
 
-const REGULAR = [
+const REGULAR: Profile[] = [
     {
         id: 3,
-        img: 47,
         name: "Brenda",
         age: 23,
-        dist: "2.1",
-        area: "Parklands",
-        rating: 4.7,
+        distanceKm: 2.1,
+        locationName: "Parklands",
+        ratingAvg: 4.7,
+        avatarUrl: "https://i.pravatar.cc/400?img=47",
+        verified: false,
+        isVip: false,
+        isEscort: true,
+        online: true,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
     {
         id: 4,
-        img: 32,
         name: "Njeri",
         age: 25,
-        dist: "2.6",
-        area: "Lavington",
-        rating: 4.8,
+        distanceKm: 2.6,
+        locationName: "Lavington",
+        ratingAvg: 4.8,
+        avatarUrl: "https://i.pravatar.cc/400?img=32",
+        verified: true,
+        isVip: false,
+        isEscort: true,
+        online: false,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
     {
         id: 7,
-        img: 31,
         name: "Sharon",
         age: 24,
-        dist: "5.2",
-        area: "South B",
-        rating: 4.6,
+        distanceKm: 5.2,
+        locationName: "South B",
+        ratingAvg: 4.6,
+        avatarUrl: "https://i.pravatar.cc/400?img=31",
+        verified: false,
+        isVip: false,
+        isEscort: true,
+        online: true,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
     {
         id: 10,
-        img: 26,
         name: "Diana",
         age: 28,
-        dist: "4.5",
-        area: "Riverside",
-        rating: 4.9,
+        distanceKm: 4.5,
+        locationName: "Riverside",
+        ratingAvg: 4.9,
+        avatarUrl: "https://i.pravatar.cc/400?img=26",
+        verified: true,
+        isVip: false,
+        isEscort: true,
+        online: false,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
     {
         id: 13,
-        img: 5,
         name: "Naomi",
         age: 21,
-        dist: "1.4",
-        area: "Kilimani",
-        rating: 4.9,
+        distanceKm: 1.4,
+        locationName: "Kilimani",
+        ratingAvg: 4.9,
+        avatarUrl: "https://i.pravatar.cc/400?img=5",
+        verified: true,
+        isVip: false,
+        isEscort: true,
+        online: true,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
     {
         id: 14,
-        img: 9,
         name: "Purity",
         age: 26,
-        dist: "3.1",
-        area: "Kileleshwa",
-        rating: 4.8,
-    },
-    {
-        id: 19,
-        img: 24,
-        name: "Esther",
-        age: 27,
-        dist: "2.2",
-        area: "Westlands",
-        rating: 4.7,
-    },
-    {
-        id: 20,
-        img: 30,
-        name: "Ruth",
-        age: 24,
-        dist: "4.0",
-        area: "Karen",
-        rating: 4.8,
-    },
-    {
-        id: 21,
-        img: 39,
-        name: "Irene",
-        age: 22,
-        dist: "1.8",
-        area: "Parklands",
-        rating: 4.9,
-    },
-    {
-        id: 22,
-        img: 11,
-        name: "Kate",
-        age: 29,
-        dist: "2.7",
-        area: "Lavington",
-        rating: 4.6,
-    },
-    {
-        id: 25,
-        img: 16,
-        name: "Winnie",
-        age: 25,
-        dist: "1.3",
-        area: "Kilimani",
-        rating: 4.8,
-    },
-    {
-        id: 26,
-        img: 22,
-        name: "Alice",
-        age: 27,
-        dist: "3.6",
-        area: "Westlands",
-        rating: 4.7,
+        distanceKm: 3.1,
+        locationName: "Kileleshwa",
+        ratingAvg: 4.8,
+        avatarUrl: "https://i.pravatar.cc/400?img=9",
+        verified: false,
+        isVip: false,
+        isEscort: true,
+        online: false,
+        gender: "female",
+        bio: null,
+        services: [],
+        available: true,
+        availabilityStatus: "online",
+        rate1Hour: null,
     },
 ];
 
@@ -395,68 +408,6 @@ function Heart({ className = "h-full w-full" }: { className?: string }) {
 }
 
 // ============================================================
-// ESCORT CARD
-// ============================================================
-
-function EscortCard({
-    e,
-    tier,
-}: {
-    e: (typeof PREMIUM)[number];
-    tier: "premium" | "regular";
-}) {
-    const p = tier === "premium";
-    return (
-        <Link
-            href={`/escorts/${e.id}`}
-            className="group relative block aspect-[3/4] overflow-hidden rounded-xl bg-card ring-1 ring-border/60 transition-all duration-500 hover:-translate-y-1 hover:shadow-2xl hover:shadow-brand-pink/20 hover:ring-brand-pink/30"
-        >
-            <img
-                src={`https://i.pravatar.cc/400?img=${e.img}`}
-                alt={e.name}
-                className="h-full w-full object-cover transition duration-700 group-hover:scale-110"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />
-
-            <div className="absolute inset-x-0 top-0 flex items-start justify-between p-2">
-                <span
-                    className={`rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-white shadow-lg ${
-                        p
-                            ? "bg-gradient-to-r from-brand-gold to-brand-orange shadow-brand-gold/30"
-                            : "bg-gradient-to-r from-brand-blue-1 to-brand-blue-2 shadow-brand-blue-1/30"
-                    }`}
-                >
-                    {p ? "★ VIP" : "Regular"}
-                </span>
-                <Tick small />
-            </div>
-
-            <div className="absolute inset-x-0 bottom-0 p-2.5 text-white">
-                <div className="flex items-baseline justify-between gap-1">
-                    <span className="truncate text-sm font-bold">
-                        {e.name}, {e.age}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] font-semibold">
-                        <Star className="h-3 w-3" />
-                        {e.rating}
-                    </span>
-                </div>
-                <div className="mt-0.5 flex items-center gap-1 text-[11px] text-white/70">
-                    <svg
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                        className="h-2.5 w-2.5"
-                    >
-                        <path d="M10 2a7 7 0 00-7 7c0 5 7 9 7 9s7-4 7-9a7 7 0 00-7-7zm0 9.5A2.5 2.5 0 1110 6.5a2.5 2.5 0 010 5z" />
-                    </svg>
-                    {e.dist}km · {e.area}
-                </div>
-            </div>
-        </Link>
-    );
-}
-
-// ============================================================
 // FILTER BAR
 // ============================================================
 
@@ -562,14 +513,10 @@ export default function Welcome() {
                     NAV
                 ================================================================ */}
                 <header
-                    className={`nav-base fixed inset-x-0 top-0 z-50 ${
-                        scrolled ? "nav-scrolled" : "px-4 pt-4 lg:px-0"
-                    }`}
+                    className={`nav-base fixed inset-x-0 top-0 z-50 ${scrolled ? "nav-scrolled" : "px-4 pt-4 lg:px-0"}`}
                 >
                     <nav
-                        className={`mx-auto flex items-center justify-between ${
-                            scrolled ? "container-page" : "nav-floating"
-                        }`}
+                        className={`mx-auto flex items-center justify-between ${scrolled ? "container-page" : "nav-floating"}`}
                     >
                         <Link href="/" className="flex items-center gap-2.5">
                             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow-pink">
@@ -803,20 +750,11 @@ export default function Welcome() {
                                                         className={`flex ${m.from === "me" ? "justify-end" : "justify-start"}`}
                                                     >
                                                         <div
-                                                            className={`max-w-[80%] rounded-2xl px-3 py-2 text-xs leading-snug ${
-                                                                m.from === "me"
-                                                                    ? "rounded-tr-sm bg-gradient-brand text-white"
-                                                                    : "rounded-tl-sm bg-white/10 text-white backdrop-blur"
-                                                            }`}
+                                                            className={`max-w-[80%] rounded-2xl px-3 py-2 text-xs leading-snug ${m.from === "me" ? "rounded-tr-sm bg-gradient-brand text-white" : "rounded-tl-sm bg-white/10 text-white backdrop-blur"}`}
                                                         >
                                                             {m.text}
                                                             <div
-                                                                className={`mt-1 flex items-center justify-end gap-0.5 text-[9px] ${
-                                                                    m.from ===
-                                                                    "me"
-                                                                        ? "text-white/70"
-                                                                        : "text-white/40"
-                                                                }`}
+                                                                className={`mt-1 flex items-center justify-end gap-0.5 text-[9px] ${m.from === "me" ? "text-white/70" : "text-white/40"}`}
                                                             >
                                                                 {m.time}{" "}
                                                                 {m.from ===
@@ -986,8 +924,12 @@ export default function Welcome() {
                     <FilterBar tier="premium" />
 
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                        {PREMIUM.slice(0, 12).map((e) => (
-                            <EscortCard key={e.id} e={e} tier="premium" />
+                        {PREMIUM.map((e) => (
+                            <ProfileCard
+                                key={e.id}
+                                profile={e}
+                                onClick={() => router.visit(`/escorts/${e.id}`)}
+                            />
                         ))}
                     </div>
                 </section>
@@ -1116,8 +1058,12 @@ export default function Welcome() {
                     <FilterBar tier="regular" />
 
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                        {REGULAR.slice(0, 12).map((e) => (
-                            <EscortCard key={e.id} e={e} tier="regular" />
+                        {REGULAR.map((e) => (
+                            <ProfileCard
+                                key={e.id}
+                                profile={e}
+                                onClick={() => router.visit(`/escorts/${e.id}`)}
+                            />
                         ))}
                     </div>
                 </section>

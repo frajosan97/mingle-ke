@@ -17,6 +17,28 @@ Route::inertia('/', 'welcome')->name('home');
 
 /*
 |--------------------------------------------------------------------------
+| Discover
+|--------------------------------------------------------------------------
+|
+| Browse profiles and interact with other users.
+|
+*/
+Route::get('/discover', [DiscoverController::class, 'index'])
+    ->name('discover.index');
+
+/*
+|--------------------------------------------------------------------------
+| Location
+|--------------------------------------------------------------------------
+|
+| Update the authenticated user's location.
+|
+*/
+Route::post('/location/update', [DiscoverController::class, 'updateLocation'])
+    ->name('location.update');
+
+/*
+|--------------------------------------------------------------------------
 | Authenticated Routes
 |--------------------------------------------------------------------------
 |
@@ -77,24 +99,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     | Browse profiles and interact with other users.
     |
     */
-    Route::get('/discover', [DiscoverController::class, 'index'])
-        ->name('discover.index');
-
     Route::post('/discover/{user}/like', [DiscoverController::class, 'like'])
         ->name('discover.like');
-
-    /*
-    |--------------------------------------------------------------------------
-    | Location
-    |--------------------------------------------------------------------------
-    |
-    | Update the authenticated user's location.
-    |
-    */
-    Route::post('/location/update', [DiscoverController::class, 'updateLocation'])
-        ->name('location.update');
-
-    Route::inertia('/profile', 'profile/show');
 });
 
 /*

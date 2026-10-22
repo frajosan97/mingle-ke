@@ -6,6 +6,7 @@ use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
@@ -17,16 +18,22 @@ class DiscoverController extends Controller
     {
         $user = $request->user();
 
-        $lat = (float) ($user?->lat ?? session('guest_lat'));
-        $lng = (float) ($user?->lng ?? session('guest_lng'));
+        // Resolve location: user coords win, otherwise fall back to guest session.
+        // Use null checks (??), NOT truthiness — 0.0 is a valid coordinate
+        // (equator / prime meridian) and would otherwise be treated as "missing".
+        $lat = $user?->lat ?? session('guest_lat');
+        $lng = $user?->lng ?? session('guest_lng');
 
-        if (!($lat && $lng)) {
+        if ($lat === null || $lng === null) {
             return Inertia::render('discover/index', [
                 'profiles' => [],
                 'filters' => $this->filtersFromRequest($request),
                 'error' => 'Location required. Please allow location access.',
             ]);
         }
+
+        $lat = (float) $lat;
+        $lng = (float) $lng;
 
         $radiusKm = (float) $request->input('radius', 50);
         $latDelta = $radiusKm / self::KM_PER_DEGREE;
@@ -99,21 +106,24 @@ class DiscoverController extends Controller
 
         if ($user) {
             $this->excludeBlocked($query, $user);
-            $this->excludeExistingConversations($query, $user);
+            // Note: We no longer exclude existing conversations. Users you have 
+            // already interacted with will still appear in the discovery feed.
         }
 
-        $profiles = $query
-            ->limit(100)
-            ->get()
-            ->map(function (User $u) use ($lat, $lng) {
+        /** @var Collection<int, User> $rows */
+        $rows = $query->limit(500)->get();
+
+        $profiles = $rows
+            ->map(function ($u) use ($lat, $lng) {
+                /** @var User $u */
                 $u->distance_km = $this->haversineKm($lat, $lng, (float) $u->lat, (float) $u->lng);
                 return $u;
             })
-            ->filter(fn(User $u) => $u->distance_km <= $radiusKm)
+            ->filter(fn($u) => $u->distance_km <= $radiusKm)
             ->sortBy('distance_km')
             ->take(30)
             ->values()
-            ->map(fn(User $u) => $this->transformProfile($u));
+            ->map(fn($u) => $this->transformProfile($u));
 
         return Inertia::render('discover/index', [
             'profiles' => $profiles,
@@ -180,14 +190,15 @@ class DiscoverController extends Controller
 
         if ($user = $request->user()) {
             $user->forceFill([
-                'lat' => $validated['lat'],
-                'lng' => $validated['lng'],
+                'lat' => (float) $validated['lat'],
+                'lng' => (float) $validated['lng'],
                 'last_active_at' => now(),
             ])->save();
+            $user->refresh();
         } else {
             session([
-                'guest_lat' => $validated['lat'],
-                'guest_lng' => $validated['lng'],
+                'guest_lat' => (float) $validated['lat'],
+                'guest_lng' => (float) $validated['lng'],
             ]);
         }
 
@@ -206,18 +217,6 @@ class DiscoverController extends Controller
         }
     }
 
-    private function excludeExistingConversations($query, User $user): void
-    {
-        $existing = Conversation::query()
-            ->where('user_one_id', $user->id)->pluck('user_two_id')
-            ->merge(Conversation::query()->where('user_two_id', $user->id)->pluck('user_one_id'))
-            ->unique()->values()->all();
-
-        if (!empty($existing)) {
-            $query->whereNotIn('users.id', $existing);
-        }
-    }
-
     private function transformProfile(User $u): array
     {
         $isEscort = $u->profile_id !== null;
@@ -230,7 +229,7 @@ class DiscoverController extends Controller
             'bio' => $u->bio,
             'avatarUrl' => $u->cover_image ?? $u->avatar,
             'distanceKm' => round($u->distance_km, 1),
-            'isEscort' => $isEscort,                       // ← new
+            'isEscort' => $isEscort,
             'services' => $isEscort ? ($u->services ?? []) : [],
             'available' => $isEscort && (bool) $u->is_available,
             'availabilityStatus' => $isEscort ? $u->availability_status : 'offline',
