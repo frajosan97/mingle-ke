@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import ConversationList from "@/components/conversation/conversation-list";
 import { useAutoLocation } from "@/hooks/use-auto-location";
+import PushNotifications from "@/components/push-notifications";
 
 interface Props extends PropsWithChildren {
     showInbox?: boolean;
@@ -19,6 +20,8 @@ interface Props extends PropsWithChildren {
 
 export default function AppLayout({ children, showInbox = false }: Props) {
     useAutoLocation();
+
+    <PushNotifications />;
 
     const { props, url } = usePage();
     const { auth } = props as {

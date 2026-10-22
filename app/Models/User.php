@@ -17,11 +17,10 @@ use Illuminate\Support\Carbon;
 use Laravel\Fortify\Contracts\PasskeyUser;
 use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
+use NotificationChannels\WebPush\HasPushSubscriptions;
 
 /**
  * @property int $id
- * @property string|null $provider_name
- * @property string|null $provider_id
  * @property string $name
  * @property string $email
  * @property string|null $avatar
@@ -63,8 +62,6 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MessageRead> $messageReads
  */
 #[Fillable([
-    'provider_name',
-    'provider_id',
     'name',
     'email',
     'avatar',
@@ -91,6 +88,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
     use HasSocialAccounts;
+    use HasPushSubscriptions;
 
     /**
      * @return array<string, string>

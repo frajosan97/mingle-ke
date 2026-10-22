@@ -4,6 +4,7 @@ use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DiscoverController;
 use App\Http\Controllers\MessageController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Http\Request;
 
 /*
 |--------------------------------------------------------------------------
@@ -102,6 +103,24 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/discover/{user}/like', [DiscoverController::class, 'like'])
         ->name('discover.like');
 });
+
+Route::post('/push-subscriptions', function (Request $request) {
+    $validated = $request->validate([
+        'endpoint' => ['required', 'url', 'max:2048'],
+        'keys.p256dh' => ['required', 'string'],
+        'keys.auth' => ['required', 'string'],
+    ]);
+
+    $request->user()->updatePushSubscription(
+        $validated['endpoint'],
+        $validated['keys']['p256dh'],
+        $validated['keys']['auth'],
+    );
+
+    return response()->json([
+        'message' => 'Push subscription saved.',
+    ]);
+})->name('push-subscriptions.store');
 
 /*
 |--------------------------------------------------------------------------

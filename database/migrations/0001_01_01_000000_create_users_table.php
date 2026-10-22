@@ -18,11 +18,7 @@ return new class extends Migration {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
 
-            // --- Social auth (Google, Facebook, Apple, ...) ---
-            $table->string('provider_name', 50)->nullable();
-            $table->string('provider_id', 191)->nullable();
-
-            // --- Identity ---
+            // Identity
             $table->string('name');
             $table->string('email')->unique();
             $table->string('avatar')->nullable();
@@ -32,11 +28,18 @@ return new class extends Migration {
             // --- Social profile (visible to everyone) ---
             $table->string('phone', 20)->nullable();   // private until unlocked
             $table->unsignedTinyInteger('age')->nullable();
-            $table->enum('gender', ['male', 'female', 'other'])->nullable();
+            $table->enum('gender', [
+                'male',
+                'female',
+                'other'
+            ])->nullable();
             $table->text('bio')->nullable();
 
             // --- Subscription / monetization ---
-            $table->enum('tier', ['regular', 'premium'])->default('regular');
+            $table->enum('tier', [
+                'regular',
+                'premium'
+            ])->default('regular');
 
             // Facebook-style billing cycles
             $table->enum('subscription_plan', [
