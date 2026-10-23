@@ -1,53 +1,71 @@
-// components/types/conversation.ts
+// resources/js/types/conversation.ts
+
 export type MessageStatus = "sent" | "delivered" | "read";
 
+/** Inbox row — mirrors App\Data\SharedConversationData. */
 export interface Conversation {
-    id: number | string;
+    id: number;
     name: string;
     lastMessage: string;
-    lastMessageAt?: string | number | null;
-    lastMessageSenderId?: number | string | null;
-    lastMessageStatus?: MessageStatus;
+    lastMessageId?: number | null;
+    lastMessageAt: string | null;
+    lastMessageSenderId: number | null;
+    lastMessageStatus: MessageStatus | null;
     time: string;
     unread: number;
-    avatarUrl?: string | null;
-    online?: boolean;
-    verified?: boolean;
-    otherUserId?: number | string | null;
+    avatarUrl: string | null;
+    online: boolean;
+    verified: boolean;
+    otherUserId: number | null;
 }
 
+export type AttachmentKind = "image" | "video" | "audio" | "file";
+
+/** Mirrors App\Models\MessageAttachment as returned by MessageResource. */
 export interface MessageAttachment {
-    name: string;
-    path: string;
-    mime: string;
-    size: number;
-    url: string;
+    id: number;
+    type: AttachmentKind;
+    /** Computed by the `url` accessor; may be absent or empty if the file cannot be resolved. */
+    url?: string;
+    original_name: string | null;
+    mime_type: string | null;
+    size_bytes: number | null;
+    width: number | null;
+    height: number | null;
+    duration_seconds: number | null;
+    position: number;
 }
+
+export type MessageType =
+    | "text"
+    | "image"
+    | "video"
+    | "audio"
+    | "file"
+    | "mixed";
 
 export interface ReplyPreview {
-    /** Display name of the author of the quoted message. */
     author: string;
-    /** Short text or attachment label shown under the author. */
     preview: string;
-    /** Optional id of the quoted message, for jump-to. */
-    messageId?: number | string;
+    messageId?: number;
 }
 
+/** Mirrors App\Models\Message as returned by MessageResource. */
 export interface ConversationMessage {
-    id: number | string;
-    conversation_id?: number | string;
-    sender_id?: number | string;
-    sender_name?: string;
-    content: string | null;
+    id: number;
+    conversation_id: number;
+    sender_id: number;
+    sender_name: string;
+    type: MessageType;
+    body: string | null;
+    attachments?: MessageAttachment[];
+    edited_at?: string | null;
+    created_at: string;
     time: string;
-    createdAt?: string;
-    created_at?: string;
-    mine: boolean;
+    // Client-side computed — not from the API.
+    mine?: boolean;
     read?: boolean;
     delivered?: boolean;
-    type: "text" | "image" | "video" | "audio" | "file";
-    attachments?: MessageAttachment[];
     deleted?: boolean;
-    /** Quoted message preview, when this message is a reply. */
     replyTo?: ReplyPreview;
 }

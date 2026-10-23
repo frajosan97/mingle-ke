@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
 /**
@@ -18,6 +19,7 @@ use Illuminate\Support\Carbon;
  * @property bool $is_archived
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
  *
  * @property-read Conversation $conversation
  * @property-read User $user
@@ -33,6 +35,8 @@ use Illuminate\Support\Carbon;
 ])]
 class ConversationParticipant extends Model
 {
+    use SoftDeletes;
+
     /**
      * @return array<string, string>
      */
@@ -75,15 +79,63 @@ class ConversationParticipant extends Model
     /** Advance the delivery watermark to now. */
     public function markDelivered(): void
     {
+        if ($this->trashed()) {
+            return;
+        }
+
         $this->update(['last_delivered_at' => now()]);
     }
 
     /** Clear unread count and advance the read marker. */
     public function markRead(): void
     {
+        if ($this->trashed()) {
+            return;
+        }
+
         $this->update([
             'last_read_at' => now(),
             'unread_count' => 0,
         ]);
     }
+
+    /**
+     * Soft-delete this participant row (a.k.a. "leave / hide the
+     * conversation for this user"). The conversation and the other
+     * participant stay intact.
+     */
+    public function leave(): void
+    {
+        if ($this->trashed()) {
+            return;
+        }
+
+        $this->update(['unread_count' => 0]);
+        $this->delete();
+    }
+
+    /** Restore a previously left conversation for this user. */
+    public function rejoin(): void
+    {
+        if ($this->trashed()) {
+            $this->restore();
+        }
+    }
+
+
+    public function participantFor(int $userId): ?ConversationParticipant
+    {
+        if ($this->relationLoaded('participants')) {
+            return $this->participants->first(
+                fn(ConversationParticipant $participant): bool =>
+                    (int) $participant->user_id === $userId
+                    && !$participant->trashed(),
+            );
+        }
+
+        return $this->participants()
+            ->where('user_id', $userId)
+            ->first();
+    }
+
 }

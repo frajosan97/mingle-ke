@@ -2,11 +2,21 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Chat\AttachmentClassifier;
+use App\Services\Chat\AttachmentTypeRegistry;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Validator;
 
 class StoreMessageRequest extends FormRequest
 {
+    private const MAX_FILES = 10;
+
+    // 20 MB per file (KB).
+    private const MAX_FILE_SIZE_KB = 20 * 1024;
+
+    private ?AttachmentClassifier $classifier = null;
+
     public function authorize(): bool
     {
         return $this->user() !== null;
@@ -14,60 +24,130 @@ class StoreMessageRequest extends FormRequest
 
     public function rules(): array
     {
-        $mimes = 'jpg,jpeg,png,gif,webp,bmp,svg,mp4,mov,avi,webm,'
-            . 'mp3,m4a,ogg,oga,wav,wave,aac,amr,3gp,'
-            . 'pdf,txt,csv,doc,docx,xls,xlsx,ppt,pptx,zip';
-
         return [
             'body' => ['nullable', 'string', 'max:5000'],
-            'type' => ['nullable', 'in:text,image,video,audio,file'],
 
-            // Backward compatibility
-            'attachment' => ['nullable', 'file', 'max:10240', "mimes:{$mimes}"],
+            'attachments' => ['sometimes', 'array', 'max:' . self::MAX_FILES],
 
-            // Multiple attachments
-            'attachments' => ['nullable', 'array', 'max:10'],
-            'attachments.*' => ['required', 'file', 'max:10240', "mimes:{$mimes}"],
+            'attachments.*' => [
+                'bail',
+                'required',
+                'file',
+                'max:' . self::MAX_FILE_SIZE_KB,
+                'mimetypes:' . implode(',', AttachmentTypeRegistry::ALLOWED_MIMES),
+                'extensions:' . implode(',', AttachmentTypeRegistry::ALLOWED_EXTENSIONS),
+            ],
+
+            'attachment_categories' => ['sometimes', 'array'],
+            'attachment_categories.*' => [
+                'nullable',
+                'string',
+                'in:' . implode(',', AttachmentTypeRegistry::CATEGORIES),
+            ],
         ];
     }
 
     public function after(): array
     {
         return [
-            function (Validator $validator) {
-                $hasBody = filled($this->input('body'));
-                $hasFiles = $this->hasFile('attachment')
-                    || count($this->file('attachments', [])) > 0;
+            function (Validator $validator): void {
+                if ($validator->errors()->isNotEmpty()) {
+                    return;
+                }
 
-                if (!$hasBody && !$hasFiles) {
+                $files = $this->uploadedFiles();
+
+                if (!filled($this->input('body')) && $files === []) {
                     $validator->errors()->add(
                         'body',
-                        'Enter a message or attach a file.'
+                        'Enter a message or attach at least one file.',
                     );
+                    return;
+                }
+
+                $classifier = $this->classifier();
+
+                foreach ($files as $index => $file) {
+                    $category = $classifier->classify($file, $this->clientHintFor($index));
+
+                    if ($category === AttachmentTypeRegistry::CATEGORY_UNKNOWN) {
+                        \Log::warning('Attachment could not be classified', [
+                            'name' => $file->getClientOriginalName(),
+                            'ext' => $file->getClientOriginalExtension(),
+                            'sniffed' => $file->getMimeType(),
+                            'client' => $file->getClientMimeType(),
+                            'size' => $file->getSize(),
+                            'error' => $file->getError(),
+                            'hint' => $this->clientHintFor($index),
+                        ]);
+
+                        $validator->errors()->add(
+                            "attachments.{$index}",
+                            sprintf(
+                                'The file "%s" could not be identified as a supported image, video, audio, document, or archive.',
+                                $file->getClientOriginalName(),
+                            ),
+                        );
+                    }
                 }
             },
         ];
     }
 
-    /**
-     * Normalize single + multiple attachments into one array.
-     *
-     * @return \Illuminate\Http\UploadedFile[]
-     */
+    /** @return array<int, UploadedFile> */
     public function uploadedFiles(): array
     {
-        $files = [];
+        $files = $this->file('attachments', []);
 
-        if ($this->hasFile('attachment')) {
-            $files[] = $this->file('attachment');
+        if ($files instanceof UploadedFile) {
+            $files = [$files];
         }
 
-        foreach ($this->file('attachments', []) as $file) {
-            if ($file instanceof \Illuminate\Http\UploadedFile) {
-                $files[] = $file;
-            }
+        if (!is_array($files)) {
+            return [];
         }
 
-        return $files;
+        return array_values(array_filter(
+            $files,
+            static fn($file): bool => $file instanceof UploadedFile && $file->isValid(),
+        ));
+    }
+
+    /**
+     * @return array<int, array{file: UploadedFile, category: string, mime: string}>
+     */
+    public function classifiedFiles(): array
+    {
+        $classifier = $this->classifier();
+        $classified = [];
+
+        foreach ($this->uploadedFiles() as $index => $file) {
+            $classified[] = [
+                'file' => $file,
+                'category' => $classifier->classify($file, $this->clientHintFor($index)),
+                'mime' => $classifier->resolveMime($file),
+            ];
+        }
+
+        return $classified;
+    }
+
+    private function classifier(): AttachmentClassifier
+    {
+        return $this->classifier ??= app(AttachmentClassifier::class);
+    }
+
+    private function clientHintFor(int $index): ?string
+    {
+        $hints = $this->input('attachment_categories', []);
+        if (!is_array($hints)) {
+            return null;
+        }
+
+        $hint = $hints[$index] ?? null;
+
+        return is_string($hint) && in_array($hint, AttachmentTypeRegistry::CATEGORIES, true)
+            ? $hint
+            : null;
     }
 }

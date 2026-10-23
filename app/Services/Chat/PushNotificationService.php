@@ -21,12 +21,13 @@ class PushNotificationService
             $recipientIds = ConversationParticipant::query()
                 ->where('conversation_id', $conversation->id)
                 ->where('user_id', '!=', $senderId)
+                ->whereNull('deleted_at')          // ← skip users who left
                 ->pluck('user_id');
 
             $preview = trim((string) $message->body);
             if ($preview === '') {
                 $preview = $this->attachments->preview(
-                    $message->attachments ?? [],
+                    $message->attachments->all(),  // ← was: ($message->attachments ?? [])
                     $message->type,
                 );
             }

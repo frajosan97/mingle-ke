@@ -28,6 +28,7 @@ return new class extends Migration {
             $table->string('last_message_preview', 255)->nullable();
 
             $table->timestamps();
+            $table->softDeletes();
 
             $table->unique(['user_one_id', 'user_two_id'], 'conversations_pair_unique');
             $table->index('last_message_at', 'conversations_last_msg_idx');
@@ -58,6 +59,7 @@ return new class extends Migration {
             $table->boolean('is_archived')->default(false);
 
             $table->timestamps();
+            $table->softDeletes();
 
             $table->unique(['conversation_id', 'user_id'], 'participants_conv_user_unique');
             $table->index(['user_id', 'is_archived'], 'participants_user_archived_idx');
@@ -79,23 +81,57 @@ return new class extends Migration {
                 ->constrained('users')
                 ->cascadeOnDelete();
 
-            $table->enum('type', ['text', 'image', 'video', 'audio', 'file'])
-                ->default('text');
+            $table->string('type')->default('text');
 
             $table->text('body')->nullable();
-            $table->json('attachments')->nullable();
 
             // Coins spent to send this message (null if free)
             $table->unsignedInteger('coins_spent')->nullable();
 
             $table->timestamp('edited_at')->nullable();
-            $table->timestamp('deleted_at')->nullable();   // soft delete
 
             $table->timestamps();
+            $table->softDeletes();
 
             $table->index(['conversation_id', 'created_at'], 'messages_conv_created_idx');
             $table->index('sender_id', 'messages_sender_idx');
-            $table->index('deleted_at', 'messages_deleted_idx');
+            $table->index('type', 'messages_type_idx');
+        });
+
+        /*
+        |------------------------------------------------------------------
+        | message_attachments
+        |------------------------------------------------------------------
+        */
+        Schema::create('message_attachments', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('message_id')
+                ->constrained()
+                ->cascadeOnDelete();
+
+            $table->string('type')->default('image');
+
+            // Storage location — explicit columns instead of a JSON blob
+            $table->string('disk', 32)->default('public');   // filesystems.php disk
+            $table->string('path');                          // relative path on disk
+            $table->string('original_name')->nullable();     // user-supplied name
+            $table->string('mime_type', 128)->nullable();
+            $table->unsignedBigInteger('size_bytes')->nullable();
+
+            // Optional media metadata (nullable — only set for relevant types)
+            $table->unsignedInteger('width')->nullable();
+            $table->unsignedInteger('height')->nullable();
+            $table->unsignedInteger('duration_seconds')->nullable();
+
+            // Order within a message (e.g. image carousel position)
+            $table->unsignedSmallInteger('position')->default(0);
+
+            $table->timestamps();
+            $table->softDeletes();
+
+            $table->index(['message_id', 'position'], 'attachments_msg_pos_idx');
+            $table->index('type', 'attachments_type_idx');
         });
 
         /*
@@ -116,6 +152,9 @@ return new class extends Migration {
 
             $table->timestamp('read_at')->useCurrent();
 
+            $table->timestamps();
+            $table->softDeletes();
+
             $table->unique(['message_id', 'user_id'], 'reads_message_user_unique');
             $table->index('user_id', 'reads_user_idx');
         });
@@ -128,6 +167,7 @@ return new class extends Migration {
     public function down(): void
     {
         Schema::dropIfExists('message_reads');
+        Schema::dropIfExists('message_attachments');
         Schema::dropIfExists('messages');
         Schema::dropIfExists('conversation_participants');
         Schema::dropIfExists('conversations');

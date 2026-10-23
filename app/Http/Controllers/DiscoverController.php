@@ -1,12 +1,12 @@
 <?php
-// app/Http/Controllers/DiscoverController.php
+
 namespace App\Http\Controllers;
 
+use App\Http\Resources\DiscoverProfileResource;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
@@ -65,7 +65,7 @@ class DiscoverController extends Controller
                 'users.last_active_at',
                 'users.lat',
                 'users.lng',
-                'user_profiles.id as profile_id',           // null if social-only
+                'user_profiles.id as profile_id',
                 'user_profiles.services',
                 'user_profiles.cover_image',
                 'user_profiles.availability_status',
@@ -106,11 +106,8 @@ class DiscoverController extends Controller
 
         if ($user) {
             $this->excludeBlocked($query, $user);
-            // Note: We no longer exclude existing conversations. Users you have 
-            // already interacted with will still appear in the discovery feed.
         }
 
-        /** @var Collection<int, User> $rows */
         $rows = $query->limit(500)->get();
 
         $profiles = $rows
@@ -122,11 +119,10 @@ class DiscoverController extends Controller
             ->filter(fn($u) => $u->distance_km <= $radiusKm)
             ->sortBy('distance_km')
             ->take(30)
-            ->values()
-            ->map(fn($u) => $this->transformProfile($u));
+            ->values();
 
         return Inertia::render('discover/index', [
-            'profiles' => $profiles,
+            'profiles' => DiscoverProfileResource::collection($profiles)->resolve(),
             'filters' => $this->filtersFromRequest($request),
         ]);
     }
@@ -137,7 +133,6 @@ class DiscoverController extends Controller
         abort_if(!$me, 401);
         abort_if($user->id === $me->id, 422);
 
-        // ── No longer requires a profile ─────────────────────────────
         // Escorts with a listing are allowed; social users are allowed.
         // BUT: if the user HAS a profile and it's unapproved/deleted,
         // block the like — they're not meant to be discoverable yet.
@@ -215,29 +210,6 @@ class DiscoverController extends Controller
         if (!empty($blockedIds)) {
             $query->whereNotIn('users.id', $blockedIds);
         }
-    }
-
-    private function transformProfile(User $u): array
-    {
-        $isEscort = $u->profile_id !== null;
-
-        return [
-            'id' => $u->id,
-            'name' => $u->name,
-            'age' => $u->age,
-            'gender' => $u->gender,
-            'bio' => $u->bio,
-            'avatarUrl' => $u->cover_image ?? $u->avatar,
-            'distanceKm' => round($u->distance_km, 1),
-            'isEscort' => $isEscort,
-            'services' => $isEscort ? ($u->services ?? []) : [],
-            'available' => $isEscort && (bool) $u->is_available,
-            'availabilityStatus' => $isEscort ? $u->availability_status : 'offline',
-            'rate1Hour' => $isEscort ? $u->rate_1hour : null,
-            'ratingAvg' => $isEscort ? (float) $u->rating_avg : 0.0,
-            'verified' => (bool) $u->is_verified,
-            'online' => $u->last_active_at?->gt(now()->subMinutes(5)) ?? false,
-        ];
     }
 
     private function haversineKm(float $lat1, float $lng1, float $lat2, float $lng2): float

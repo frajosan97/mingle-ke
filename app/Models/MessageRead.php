@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
 /**
@@ -12,6 +13,9 @@ use Illuminate\Support\Carbon;
  * @property int $message_id
  * @property int $user_id
  * @property Carbon $read_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
  *
  * @property-read Message $message
  * @property-read User $user
@@ -19,11 +23,7 @@ use Illuminate\Support\Carbon;
 #[Fillable(['message_id', 'user_id', 'read_at'])]
 class MessageRead extends Model
 {
-    /**
-     * Read receipts are immutable — no created_at / updated_at.
-     * The single timestamp is `read_at`.
-     */
-    public $timestamps = false;
+    use SoftDeletes;
 
     /**
      * @return array<string, string>

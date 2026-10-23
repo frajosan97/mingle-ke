@@ -22,16 +22,125 @@ import {
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import { cn } from "@/lib/utils";
 
+/**
+ * Category hint sent to the backend alongside each file. Matches the
+ * backend's allowed `attachment_categories.*` values.
+ */
+export type AttachmentCategory =
+    | "image"
+    | "video"
+    | "audio"
+    | "document"
+    | "archive";
+
+export interface OutgoingAttachment {
+    file: File;
+    category: AttachmentCategory;
+}
+
 interface Props {
-    onSend: (text: string, files?: File[], audioBlob?: Blob) => void;
+    /**
+     * Called when the user submits. `categories[i]` corresponds to
+     * `files[i]` and lets the backend classify ambiguous containers
+     * (webm / mp4 voice notes) without relying on ffprobe alone.
+     */
+    onSend: (
+        text: string,
+        files?: File[],
+        categories?: AttachmentCategory[],
+    ) => void;
     onTyping?: () => void;
+    /** Optional: disable input while a message is in flight. */
+    disabled?: boolean;
+    /** Optional: initial focus on mount (default true). */
+    autoFocus?: boolean;
 }
 
 type MediaType = "document" | "media" | "camera" | "audio";
 
-export default function MessageInput({ onSend, onTyping }: Props) {
+// Preferred recording containers, most specific first.
+// Every entry is audio-only — no video containers, ever.
+const PREFERRED_AUDIO_MIMES = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/ogg",
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mp4",
+] as const;
+
+const extensionForAudioMime = (mime: string): string => {
+    if (mime.includes("webm")) return "webm";
+    if (mime.includes("ogg")) return "ogg";
+    if (mime.includes("mp4") || mime.includes("m4a")) return "m4a";
+    if (mime.includes("wav")) return "wav";
+    return "webm";
+};
+
+/**
+ * Map a File to the category the backend expects. This is what makes
+ * voice notes reliably classified as audio on the server side, even
+ * when ffprobe is unavailable.
+ */
+const categoryForFile = (file: File): AttachmentCategory => {
+    const type = file.type.toLowerCase();
+    if (type.startsWith("image/")) return "image";
+    if (type.startsWith("video/")) return "video";
+    if (type.startsWith("audio/")) return "audio";
+
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (["zip"].includes(ext)) return "archive";
+    if (
+        [
+            "doc",
+            "docx",
+            "xls",
+            "xlsx",
+            "ppt",
+            "pptx",
+            "pdf",
+            "txt",
+            "csv",
+            "odt",
+            "ods",
+            "odp",
+            "rtf",
+        ].includes(ext)
+    )
+        return "document";
+    if (["mp4", "mov", "avi", "webm", "mkv", "m4v", "3gp"].includes(ext)) {
+        return "video";
+    }
+    if (
+        ["mp3", "m4a", "ogg", "oga", "wav", "wave", "aac", "amr"].includes(ext)
+    ) {
+        return "audio";
+    }
+    if (["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(ext)) {
+        return "image";
+    }
+    return "document";
+};
+
+interface PendingFile {
+    file: File;
+    /** Object URL created exactly once when the file was added. */
+    url: string;
+    category: AttachmentCategory;
+}
+
+const isImageFile = (file: File) => file.type.startsWith("image/");
+const isVideoFile = (file: File) => file.type.startsWith("video/");
+const isAudioFile = (file: File) => file.type.startsWith("audio/");
+
+export default function MessageInput({
+    onSend,
+    onTyping,
+    disabled = false,
+    autoFocus = true,
+}: Props) {
     const [text, setText] = useState("");
-    const [files, setFiles] = useState<File[]>([]);
+    const [files, setFiles] = useState<PendingFile[]>([]);
     const [showEmoji, setShowEmoji] = useState(false);
     const [showMediaMenu, setShowMediaMenu] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
@@ -48,16 +157,41 @@ export default function MessageInput({ onSend, onTyping }: Props) {
     const recordingStreamRef = useRef<MediaStream | null>(null);
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const lastTypingRef = useRef(0);
-    const previewUrlsRef = useRef<Map<File, string>>(new Map());
+    // Keep the latest callbacks available to async handlers (recorder.onstop)
+    // without re-subscribing on every render.
     const onSendRef = useRef(onSend);
 
     useEffect(() => {
         onSendRef.current = onSend;
     }, [onSend]);
 
-    // ...all state/fx logic unchanged from original...
-    // (paste the same timer/preview/resize/recording logic here verbatim)
+    // ---------------------------------------------------------------
+    // Focus helpers
+    // ---------------------------------------------------------------
+    const focusInput = useCallback(() => {
+        // Defer to next frame so layout is settled (esp. after menu close).
+        requestAnimationFrame(() => {
+            const el = textInputRef.current;
+            if (!el || el.disabled) return;
+            el.focus();
+            // Place caret at end, not start.
+            const len = el.value.length;
+            try {
+                el.setSelectionRange(len, len);
+            } catch {
+                /* setSelectionRange can throw on some mobile browsers */
+            }
+        });
+    }, []);
 
+    // Focus on mount when allowed.
+    useEffect(() => {
+        if (autoFocus) focusInput();
+    }, [autoFocus, focusInput]);
+
+    // ---------------------------------------------------------------
+    // Timer
+    // ---------------------------------------------------------------
     const stopTimer = useCallback(() => {
         if (timerRef.current !== null) {
             clearInterval(timerRef.current);
@@ -65,32 +199,35 @@ export default function MessageInput({ onSend, onTyping }: Props) {
         }
     }, []);
 
-    const getPreviewUrl = useCallback((file: File) => {
-        const cached = previewUrlsRef.current.get(file);
-        if (cached) return cached;
-        const url = URL.createObjectURL(file);
-        previewUrlsRef.current.set(file, url);
-        return url;
-    }, []);
-
-    const revokePreview = useCallback((file: File) => {
-        const url = previewUrlsRef.current.get(file);
-        if (url) {
+    // ---------------------------------------------------------------
+    // Preview URL lifecycle — created on add, revoked on remove/reset.
+    // ---------------------------------------------------------------
+    const revokeUrl = useCallback((url: string) => {
+        try {
             URL.revokeObjectURL(url);
-            previewUrlsRef.current.delete(file);
+        } catch {
+            /* ignore — URL may already be revoked */
         }
     }, []);
 
-    const clearPreviews = useCallback(() => {
-        previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-        previewUrlsRef.current.clear();
-    }, []);
+    const clearPreviews = useCallback(
+        (items: PendingFile[]) => {
+            items.forEach((item) => revokeUrl(item.url));
+        },
+        [revokeUrl],
+    );
 
-    const closePopups = () => {
+    // ---------------------------------------------------------------
+    // Popups
+    // ---------------------------------------------------------------
+    const closePopups = useCallback(() => {
         setShowEmoji(false);
         setShowMediaMenu(false);
-    };
+    }, []);
 
+    // ---------------------------------------------------------------
+    // Textarea auto-resize
+    // ---------------------------------------------------------------
     const resizeTextarea = useCallback(() => {
         const input = textInputRef.current;
         if (!input) return;
@@ -103,6 +240,9 @@ export default function MessageInput({ onSend, onTyping }: Props) {
         resizeTextarea();
     }, [text, resizeTextarea]);
 
+    // ---------------------------------------------------------------
+    // Typing
+    // ---------------------------------------------------------------
     const handleChange = (value: string) => {
         setText(value);
         if (value.trim() && Date.now() - lastTypingRef.current >= 1500) {
@@ -113,30 +253,39 @@ export default function MessageInput({ onSend, onTyping }: Props) {
 
     const handleEmojiClick = (emojiData: { emoji: string }) => {
         setText((previous) => previous + emojiData.emoji);
-        textInputRef.current?.focus();
+        focusInput();
     };
 
+    // ---------------------------------------------------------------
+    // File selection
+    // ---------------------------------------------------------------
     const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
         const selected = Array.from(event.target.files ?? []);
         if (selected.length) {
             setFiles((previous) => {
                 const existing = new Set(
                     previous.map(
-                        (f) => `${f.name}:${f.size}:${f.lastModified}`,
+                        (p) =>
+                            `${p.file.name}:${p.file.size}:${p.file.lastModified}`,
                     ),
                 );
-                const additions = selected.filter((file) => {
+                const additions: PendingFile[] = [];
+                for (const file of selected) {
                     const key = `${file.name}:${file.size}:${file.lastModified}`;
-                    if (existing.has(key)) return false;
+                    if (existing.has(key)) continue;
                     existing.add(key);
-                    return true;
-                });
+                    additions.push({
+                        file,
+                        url: URL.createObjectURL(file),
+                        category: categoryForFile(file),
+                    });
+                }
                 return [...previous, ...additions];
             });
         }
         event.target.value = "";
         setShowMediaMenu(false);
-        textInputRef.current?.focus();
+        focusInput();
     };
 
     const triggerFileSelect = (type: MediaType) => {
@@ -165,34 +314,63 @@ export default function MessageInput({ onSend, onTyping }: Props) {
 
     const removeFile = (index: number) => {
         setFiles((previous) => {
-            const file = previous[index];
-            if (file) revokePreview(file);
+            const removed = previous[index];
+            if (removed) revokeUrl(removed.url);
             return previous.filter((_, i) => i !== index);
         });
+        focusInput();
     };
 
-    const resetComposer = () => {
+    // ---------------------------------------------------------------
+    // Reset / submit
+    // ---------------------------------------------------------------
+    const resetComposer = useCallback(() => {
+        // Reset state first so a parent that unmounts us on send is safe.
         setText("");
-        setFiles([]);
+        setFiles((previous) => {
+            clearPreviews(previous);
+            return [];
+        });
         setRecordingTime(0);
-        closePopups();
-        clearPreviews();
+        setShowEmoji(false);
+        setShowMediaMenu(false);
         if (textInputRef.current) {
             textInputRef.current.style.height = "auto";
-            textInputRef.current.focus();
         }
-    };
+        focusInput();
+    }, [clearPreviews, focusInput]);
 
     const handleSubmit = (event?: FormEvent<HTMLFormElement>) => {
         event?.preventDefault();
-        if (isRecording || (!text.trim() && files.length === 0)) return;
+        if (disabled || isRecording) return;
+        if (!text.trim() && files.length === 0) return;
+
         const message = text.trim();
-        const attachments = [...files];
-        onSend(message, attachments);
+        const attachments = files.map((p) => p.file);
+        const categories = files.map((p) => p.category);
+
+        // Reset BEFORE calling onSend: the parent may unmount us
+        // synchronously (e.g. optimistic list swap, route change),
+        // and running cleanup on an unmounting component warns.
         resetComposer();
+        onSend(message, attachments, categories);
     };
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (event.key === "Escape") {
+            if (showEmoji || showMediaMenu) {
+                event.preventDefault();
+                closePopups();
+                focusInput();
+                return;
+            }
+            if (isRecording) {
+                event.preventDefault();
+                cancelRecording();
+                return;
+            }
+        }
+
         if (
             event.key === "Enter" &&
             !event.shiftKey &&
@@ -203,9 +381,12 @@ export default function MessageInput({ onSend, onTyping }: Props) {
         }
     };
 
+    // ---------------------------------------------------------------
+    // Recording
+    // ---------------------------------------------------------------
     const startRecording = async () => {
-        // unchanged logic
-        if (isRecording || mediaRecorderRef.current) return;
+        if (disabled || isRecording || mediaRecorderRef.current) return;
+
         if (
             typeof navigator === "undefined" ||
             !navigator.mediaDevices?.getUserMedia ||
@@ -214,43 +395,84 @@ export default function MessageInput({ onSend, onTyping }: Props) {
             console.error("Audio recording is not supported in this browser.");
             return;
         }
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
             });
+
+            // Guard against double-start while awaiting getUserMedia.
             if (mediaRecorderRef.current) {
                 stream.getTracks().forEach((t) => t.stop());
                 return;
             }
-            const mimeType = [
-                "audio/webm;codecs=opus",
-                "audio/webm",
-                "audio/mp4",
-            ].find((type) => MediaRecorder.isTypeSupported(type));
-            const recorder = mimeType
-                ? new MediaRecorder(stream, { mimeType })
-                : new MediaRecorder(stream);
+
+            const resolvedMime =
+                PREFERRED_AUDIO_MIMES.find((type) =>
+                    MediaRecorder.isTypeSupported(type),
+                ) ?? null;
+
+            if (!resolvedMime) {
+                console.error(
+                    "No audio-only recording format is supported in this browser.",
+                );
+                stream.getTracks().forEach((t) => t.stop());
+                return;
+            }
+
+            const recorder = new MediaRecorder(stream, {
+                mimeType: resolvedMime,
+            });
             mediaRecorderRef.current = recorder;
             recordingStreamRef.current = stream;
             audioChunksRef.current = [];
+
             recorder.ondataavailable = (event) => {
-                if (event.data.size > 0)
+                if (event.data.size > 0) {
                     audioChunksRef.current.push(event.data);
+                }
             };
+
             recorder.onstop = () => {
                 stopTimer();
-                const blobType = recorder.mimeType || "audio/webm";
+
+                // Safari may report video/mp4 for an audio-only recording.
+                // Browsers may also report video/webm for audio-only WebM
+                // (MediaRecorder with audio:true sometimes picks the video
+                // container). Normalise to audio/* so the server sees an
+                // unambiguous audio stream and the client hint says "audio".
+                const rawType = recorder.mimeType || resolvedMime;
+                const normalisedType = rawType.startsWith("video/")
+                    ? rawType.replace(/^video\//, "audio/")
+                    : rawType;
+
                 const audioBlob = new Blob(audioChunksRef.current, {
-                    type: blobType,
+                    type: normalisedType,
                 });
+                const extension = extensionForAudioMime(normalisedType);
+                const audioFile = new File(
+                    [audioBlob],
+                    `voice-note-${Date.now()}.${extension}`,
+                    { type: normalisedType },
+                );
+
                 stream.getTracks().forEach((t) => t.stop());
                 recordingStreamRef.current = null;
                 mediaRecorderRef.current = null;
                 audioChunksRef.current = [];
                 setIsRecording(false);
                 setRecordingTime(0);
-                if (audioBlob.size > 0) onSendRef.current("", [], audioBlob);
+
+                if (audioFile.size > 0) {
+                    // Send as a normal attachment with an explicit "audio"
+                    // category so the backend never guesses video from the
+                    // container extension.
+                    onSendRef.current("", [audioFile], ["audio"]);
+                }
+
+                focusInput();
             };
+
             recorder.start();
             setIsRecording(true);
             setRecordingTime(0);
@@ -264,6 +486,7 @@ export default function MessageInput({ onSend, onTyping }: Props) {
             recordingStreamRef.current = null;
             mediaRecorderRef.current = null;
             setIsRecording(false);
+            focusInput();
         }
     };
 
@@ -285,6 +508,7 @@ export default function MessageInput({ onSend, onTyping }: Props) {
         audioChunksRef.current = [];
         setIsRecording(false);
         setRecordingTime(0);
+        focusInput();
     };
 
     const formatTime = (seconds: number) => {
@@ -293,6 +517,9 @@ export default function MessageInput({ onSend, onTyping }: Props) {
         return `${minutes}:${remaining.toString().padStart(2, "0")}`;
     };
 
+    // ---------------------------------------------------------------
+    // Outside-click handling
+    // ---------------------------------------------------------------
     useEffect(() => {
         const handleOutsideClick = (event: MouseEvent) => {
             const target = event.target as Node;
@@ -300,20 +527,25 @@ export default function MessageInput({ onSend, onTyping }: Props) {
                 emojiWrapRef.current &&
                 !emojiWrapRef.current.contains(target) &&
                 !emojiButtonRef.current?.contains(target)
-            )
+            ) {
                 setShowEmoji(false);
+            }
             if (
                 mediaWrapRef.current &&
                 !mediaWrapRef.current.contains(target) &&
                 !mediaButtonRef.current?.contains(target)
-            )
+            ) {
                 setShowMediaMenu(false);
+            }
         };
         document.addEventListener("mousedown", handleOutsideClick);
         return () =>
             document.removeEventListener("mousedown", handleOutsideClick);
     }, []);
 
+    // ---------------------------------------------------------------
+    // Unmount cleanup
+    // ---------------------------------------------------------------
     useEffect(() => {
         return () => {
             stopTimer();
@@ -323,9 +555,34 @@ export default function MessageInput({ onSend, onTyping }: Props) {
                 if (recorder.state !== "inactive") recorder.stop();
             }
             recordingStreamRef.current?.getTracks().forEach((t) => t.stop());
-            clearPreviews();
+            // Revoke any preview URLs still alive.
+            clearPreviews(files);
         };
+        // `files` intentionally not in deps — we only want unmount cleanup.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clearPreviews, stopTimer]);
+
+    // ---------------------------------------------------------------
+    // Global keyboard: "/" focuses the composer (common chat shortcut).
+    // ---------------------------------------------------------------
+    useEffect(() => {
+        const onGlobalKey = (event: globalThis.KeyboardEvent) => {
+            if (event.key !== "/" || event.metaKey || event.ctrlKey) return;
+            const active = document.activeElement;
+            const tag = active?.tagName?.toLowerCase();
+            if (
+                tag === "input" ||
+                tag === "textarea" ||
+                (active as HTMLElement | null)?.isContentEditable
+            ) {
+                return;
+            }
+            event.preventDefault();
+            focusInput();
+        };
+        document.addEventListener("keydown", onGlobalKey);
+        return () => document.removeEventListener("keydown", onGlobalKey);
+    }, [focusInput]);
 
     const hasContent = Boolean(text.trim() || files.length > 0);
 
@@ -340,34 +597,39 @@ export default function MessageInput({ onSend, onTyping }: Props) {
         <footer className="relative z-20 shrink-0 px-2 py-3 sm:px-4">
             {files.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-2 px-1">
-                    {files.map((file, index) => {
-                        const isImage = file.type.startsWith("image/");
-                        const isVideo = file.type.startsWith("video/");
-                        const preview =
-                            isImage || isVideo ? getPreviewUrl(file) : null;
+                    {files.map(({ file, url, category }, index) => {
+                        const image = isImageFile(file);
+                        const video = isVideoFile(file);
+                        const audio = isAudioFile(file);
+
                         return (
                             <div
                                 key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
                                 className="relative flex max-w-full items-center gap-2 rounded-xl border border-border/60 bg-card p-2 pr-9 shadow-sm"
                             >
-                                {isImage ? (
+                                {image ? (
                                     <img
-                                        src={preview ?? ""}
+                                        src={url}
                                         alt={file.name}
                                         className="h-12 w-12 shrink-0 rounded-lg object-cover"
                                     />
-                                ) : isVideo ? (
+                                ) : video ? (
                                     <video
-                                        src={preview ?? ""}
+                                        src={url}
                                         className="h-12 w-12 shrink-0 rounded-lg object-cover"
                                         muted
                                         playsInline
                                     />
+                                ) : audio ? (
+                                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-brand-pink/10 text-brand-pink">
+                                        <Mic className="h-6 w-6" />
+                                    </div>
                                 ) : (
                                     <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted">
                                         <FileText className="h-6 w-6 text-muted-foreground" />
                                     </div>
                                 )}
+
                                 <div className="min-w-0 max-w-[180px]">
                                     <p className="truncate text-xs font-medium text-foreground">
                                         {file.name}
@@ -375,7 +637,18 @@ export default function MessageInput({ onSend, onTyping }: Props) {
                                     <p className="text-[11px] text-muted-foreground">
                                         {(file.size / 1024).toFixed(0)} KB
                                     </p>
+                                    {audio && (
+                                        <audio
+                                            src={url}
+                                            controls
+                                            preload="metadata"
+                                            className="mt-1 h-7 w-full max-w-[160px]"
+                                        />
+                                    )}
+                                    {/* `category` is sent to the backend on submit. */}
+                                    <span className="sr-only">{category}</span>
                                 </div>
+
                                 <button
                                     type="button"
                                     onClick={() => removeFile(index)}
@@ -414,11 +687,12 @@ export default function MessageInput({ onSend, onTyping }: Props) {
                         type="button"
                         aria-label="Attach files"
                         aria-expanded={showMediaMenu}
+                        disabled={disabled || isRecording}
                         onClick={() => {
                             setShowMediaMenu((v) => !v);
                             setShowEmoji(false);
                         }}
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:opacity-50"
                     >
                         <Paperclip className="h-[22px] w-[22px]" />
                     </button>
@@ -449,11 +723,12 @@ export default function MessageInput({ onSend, onTyping }: Props) {
                         type="button"
                         aria-label="Choose emoji"
                         aria-expanded={showEmoji}
+                        disabled={disabled || isRecording}
                         onClick={() => {
                             setShowEmoji((v) => !v);
                             if (!showEmoji) setShowMediaMenu(false);
                         }}
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:opacity-50"
                     >
                         <Smile className="h-[23px] w-[23px]" />
                     </button>
@@ -499,12 +774,14 @@ export default function MessageInput({ onSend, onTyping }: Props) {
                             className={cn(
                                 "flex min-h-[42px] min-w-0 flex-1 items-end rounded-[21px] border border-border/60 bg-card px-3 shadow-sm transition-all sm:px-4",
                                 "focus-within:border-brand-pink/40 focus-within:ring-2 focus-within:ring-brand-pink/20",
+                                disabled && "opacity-60",
                             )}
                         >
                             <textarea
                                 ref={textInputRef}
                                 rows={1}
                                 value={text}
+                                disabled={disabled}
                                 onChange={(e) => handleChange(e.target.value)}
                                 onKeyDown={handleKeyDown}
                                 placeholder="Type a message"
@@ -517,7 +794,8 @@ export default function MessageInput({ onSend, onTyping }: Props) {
                             <button
                                 type="submit"
                                 aria-label="Send message"
-                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift active:scale-95"
+                                disabled={disabled}
+                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift active:scale-95 disabled:opacity-50"
                             >
                                 <Send className="h-[19px] w-[19px]" />
                             </button>
@@ -526,7 +804,8 @@ export default function MessageInput({ onSend, onTyping }: Props) {
                                 type="button"
                                 onClick={startRecording}
                                 aria-label="Record voice message"
-                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-95"
+                                disabled={disabled}
+                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-95 disabled:opacity-50"
                             >
                                 <Mic className="h-[25px] w-[25px]" />
                             </button>

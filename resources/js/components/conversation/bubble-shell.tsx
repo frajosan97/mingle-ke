@@ -24,15 +24,15 @@ export default function BubbleShell({
         >
             <div
                 className={cn(
-                    "relative max-w-[75%] text-sm shadow-sm md:max-w-[65%]",
+                    "relative max-w-[75%] text-sm md:max-w-[65%]",
                     // Outgoing: brand gradient. Incoming: card surface.
                     mine
-                        ? "rounded-2xl rounded-tr-md bg-gradient-brand text-white shadow-glow-pink/20"
-                        : "rounded-2xl rounded-tl-md border border-border/60 bg-card text-card-foreground",
-                    bare ? "overflow-hidden p-0.5" : "px-3 pb-1.5 pt-2",
-
-                    // Tail — use rounded corners instead of clip-path
-                    // (cleaner, theme-agnostic, matches modern chat UIs)
+                        ? "rounded-2xl rounded-tr-md bg-gradient-brand text-white shadow-md ring-1 ring-black/5"
+                        : "rounded-2xl rounded-tl-md border border-border/60 bg-card text-card-foreground shadow-sm",
+                    // Bare mode: media takes the full bubble; timestamp
+                    // overlay sits on top of the media (see MessageBubble).
+                    // Non-bare mode: leave room for inline meta at bottom.
+                    bare ? "overflow-hidden p-0.5" : "px-3 pb-2 pt-2",
                     className,
                 )}
             >

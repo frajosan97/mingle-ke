@@ -2,6 +2,7 @@
 
 namespace App\Events;
 
+use App\Http\Resources\MessageResource;
 use App\Models\Message;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
@@ -13,13 +14,18 @@ class MessageSent implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public function __construct(public Message $message)
-    {
+    public function __construct(
+        public Message $message,
+        public int $recipientId,
+    ) {
     }
 
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('conversation.' . $this->message->conversation_id)];
+        return [
+            new PrivateChannel('conversation.' . $this->message->conversation_id),
+            new PrivateChannel('user.' . $this->recipientId),
+        ];
     }
 
     public function broadcastAs(): string
@@ -29,20 +35,12 @@ class MessageSent implements ShouldBroadcast
 
     public function broadcastWith(): array
     {
-        $m = $this->message->loadMissing('sender:id,name');
+        $message = $this->message->loadMissing(['sender:id,name', 'attachments']);
 
         return [
-            'message' => [
-                'id' => $m->id,
-                'conversation_id' => $m->conversation_id,
-                'sender_id' => $m->sender_id,
-                'sender_name' => $m->sender->name,
-                'type' => $m->type,
-                'body' => $m->body,
-                'attachments' => $m->attachments ?? [],
-                'created_at' => $m->created_at->toISOString(),
-                'time' => $m->created_at->format('H:i'),
-            ],
+            'message' => (new MessageResource($message, [
+                'viewerId' => $this->recipientId,
+            ]))->resolve(),
         ];
     }
 }

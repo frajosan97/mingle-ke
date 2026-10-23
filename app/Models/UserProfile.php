@@ -116,6 +116,19 @@ class UserProfile extends Model
     }
 
     // ==================================================================
+    // HELPERS
+    // ==================================================================
+
+    /** Whether this profile is publicly visible right now. */
+    public function isListed(): bool
+    {
+        return $this->is_approved
+            && !$this->trashed()
+            && $this->user !== null
+            && !$this->user->trashed();
+    }
+
+    // ==================================================================
     // SCOPES
     // ==================================================================
 
@@ -135,13 +148,20 @@ class UserProfile extends Model
         return $query->where('is_featured', true);
     }
 
+    /**
+     * Approximate radius search using Haversine on the parent user row.
+     * Eloquent will add `users.deleted_at IS NULL` automatically because
+     * User uses SoftDeletes.
+     */
     public function scopeNearby($query, float $lat, float $lng, int $radiusKm = 25)
     {
         return $query->whereHas('user', function ($q) use ($lat, $lng, $radiusKm) {
-            $q->whereRaw(
-                "(6371 * acos(cos(radians(?)) * cos(radians(lat)) * cos(radians(lng) - radians(?)) + sin(radians(?)) * sin(radians(lat)))) <= ?",
-                [$lat, $lng, $lat, $radiusKm]
-            );
+            $q->whereNotNull('lat')
+                ->whereNotNull('lng')
+                ->whereRaw(
+                    '(6371 * acos(cos(radians(?)) * cos(radians(lat)) * cos(radians(lng) - radians(?)) + sin(radians(?)) * sin(radians(lat)))) <= ?',
+                    [$lat, $lng, $lat, $radiusKm]
+                );
         });
     }
 }

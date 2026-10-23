@@ -4,28 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useEcho } from "@laravel/echo-react";
 import { BadgeCheck, Check, CheckCheck, Compass, SearchX } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Conversation } from "@/types";
+import type { Conversation, MessageStatus } from "@/types";
 
-type MessageStatus = "sent" | "delivered" | "read";
-
+// Explicitly declare lastMessageId here to avoid TypeScript caching issues
 type ExtendedConversation = Conversation & {
     online?: boolean;
     verified?: boolean;
-    lastMessageAt?: string | number | null;
-    lastMessageSenderId?: number | string | null;
-    lastMessageStatus?: MessageStatus | null;
-    unread: number;
-};
-
-type ConversationUpdatedEvent = {
-    conversation?: Partial<ExtendedConversation> & {
-        id: number | string;
-    };
+    lastMessageId?: number | null;
 };
 
 interface Props {
     activeId?: string;
-    /** Search term — matched against name, last message, and area. */
     query?: string;
 }
 
@@ -36,18 +25,32 @@ function timestamp(value?: string | number | null): number {
     return Number.isFinite(result) ? result : 0;
 }
 
+const statusRank: Record<MessageStatus, number> = {
+    sent: 0,
+    delivered: 1,
+    read: 2,
+};
+
+function higherStatus(
+    a?: MessageStatus | null,
+    b?: MessageStatus | null,
+): MessageStatus | null {
+    if (!a) return b ?? null;
+    if (!b) return a;
+    return statusRank[a] >= statusRank[b] ? a : b;
+}
+
 function sortConversations(
-    conversations: ExtendedConversation[],
+    list: ExtendedConversation[],
 ): ExtendedConversation[] {
-    return [...conversations].sort(
+    return [...list].sort(
         (a, b) => timestamp(b.lastMessageAt) - timestamp(a.lastMessageAt),
     );
 }
 
 export default function ConversationList({ activeId, query = "" }: Props) {
     const { props } = usePage();
-    const auth = (props as any).auth;
-    const userId = auth?.user?.id;
+    const userId = Number((props as any).auth?.user?.id);
     const initial = ((props as any).conversations ??
         []) as ExtendedConversation[];
 
@@ -55,76 +58,123 @@ export default function ConversationList({ activeId, query = "" }: Props) {
         () => sortConversations(initial),
     );
 
-    // Sync server data without replacing newer real-time updates
+    // Sync server props on load
     useEffect(() => {
         setConversations((current) => {
             const currentById = new Map(current.map((c) => [String(c.id), c]));
             const merged = initial.map((server) => {
                 const existing = currentById.get(String(server.id));
                 if (!existing) return server;
-                const sameLatestMessage =
+
+                const sameMessage =
                     timestamp(existing.lastMessageAt) ===
-                        timestamp(server.lastMessageAt) &&
-                    String(existing.lastMessageSenderId ?? "") ===
-                        String(server.lastMessageSenderId ?? "");
-                const serverIsOlder =
-                    timestamp(existing.lastMessageAt) >
                     timestamp(server.lastMessageAt);
-                if (serverIsOlder) return { ...server, ...existing };
                 return {
                     ...existing,
                     ...server,
-                    ...(sameLatestMessage
-                        ? {
-                              lastMessageStatus:
-                                  existing.lastMessageStatus ??
-                                  server.lastMessageStatus,
-                          }
-                        : {}),
+                    lastMessageStatus: sameMessage
+                        ? higherStatus(
+                              existing.lastMessageStatus,
+                              server.lastMessageStatus,
+                          )
+                        : server.lastMessageStatus,
                 };
             });
             return sortConversations(merged);
         });
     }, [initial]);
 
-    // Realtime updates
+    // 1. Listen for new messages globally
     useEcho(
-        userId != null ? `user.${userId}` : "user.0",
-        ".ConversationUpdated",
-        (event: ConversationUpdatedEvent) => {
-            const incoming = event?.conversation;
-            if (incoming?.id == null) return;
+        userId ? `user.${userId}` : "user.0",
+        ".MessageSent",
+        (event: any) => {
+            const msg = event?.message;
+            if (!msg) return;
+
             setConversations((current) => {
                 const index = current.findIndex(
-                    (c) => String(c.id) === String(incoming.id),
+                    (c) => String(c.id) === String(msg.conversation_id),
                 );
                 if (index === -1) return current;
+
                 const existing = current[index];
-                const sameLatestMessage =
-                    incoming.lastMessageAt == null ||
-                    timestamp(incoming.lastMessageAt) ===
-                        timestamp(existing.lastMessageAt);
-                const merged: ExtendedConversation = {
+                const isMine = Number(msg.sender_id) === userId;
+                const createdAt = msg.created_at ?? new Date().toISOString();
+                const body = msg.body ?? msg.content ?? "";
+
+                const updated: ExtendedConversation = {
                     ...existing,
-                    ...incoming,
-                    unread: incoming.unread ?? existing.unread ?? 0,
-                    lastMessageStatus: sameLatestMessage
-                        ? (incoming.lastMessageStatus ??
-                          existing.lastMessageStatus)
-                        : incoming.lastMessageStatus,
+                    lastMessage: body,
+                    lastMessageId: msg.id,
+                    lastMessageAt: createdAt,
+                    lastMessageSenderId: Number(msg.sender_id),
+                    lastMessageStatus: isMine ? "sent" : null,
+                    time: new Date(createdAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                    }),
+                    unread: isMine
+                        ? existing.unread
+                        : (existing.unread || 0) + 1,
                 };
+
                 return sortConversations(
-                    current.map((c, i) => (i === index ? merged : c)),
+                    current.map((c, i) => (i === index ? updated : c)),
                 );
             });
         },
     );
 
-    // ── Filtered view (memoized on query + conversations) ─────────
+    // 2. Listen for receipts globally
+    const handleReceipt = (event: any, status: "delivered" | "read") => {
+        if (!event?.message_id || !userId) return;
+        // We only care if WE sent the message
+        if (Number(event.sender_id) !== userId) return;
+
+        const convId = event.conversation_id;
+        if (!convId) return;
+
+        setConversations((current) => {
+            const index = current.findIndex(
+                (c) => String(c.id) === String(convId),
+            );
+            if (index === -1) return current;
+
+            const existing = current[index];
+
+            // Only apply the receipt if it matches the latest message ID
+            if (
+                existing.lastMessageId &&
+                String(existing.lastMessageId) !== String(event.message_id)
+            ) {
+                return current;
+            }
+
+            return current.map((c, i) =>
+                i === index
+                    ? {
+                          ...existing,
+                          lastMessageStatus: higherStatus(
+                              existing.lastMessageStatus,
+                              status,
+                          ),
+                      }
+                    : c,
+            );
+        });
+    };
+
+    useEcho(userId ? `user.${userId}` : "user.0", ".MessageDelivered", (e) =>
+        handleReceipt(e, "delivered"),
+    );
+    useEcho(userId ? `user.${userId}` : "user.0", ".MessageRead", (e) =>
+        handleReceipt(e, "read"),
+    );
+
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
         if (!q) return conversations;
-
         return conversations.filter((c) => {
             const name = (c.name ?? "").toLowerCase();
             const last = (c.lastMessage ?? "").toLowerCase();
@@ -133,22 +183,22 @@ export default function ConversationList({ activeId, query = "" }: Props) {
         });
     }, [conversations, query]);
 
-    const renderMessageStatus = (conversation: ExtendedConversation) => {
+    const renderMessageStatus = (c: ExtendedConversation) => {
+        console.log(c);
         if (
             userId == null ||
-            conversation.lastMessageSenderId == null ||
-            String(conversation.lastMessageSenderId) !== String(userId)
+            c.lastMessageSenderId == null ||
+            String(c.lastMessageSenderId) !== String(userId)
         ) {
             return null;
         }
 
-        switch (conversation.lastMessageStatus) {
+        switch (c.lastMessageStatus) {
             case "read":
                 return (
                     <CheckCheck
                         className="h-4 w-4 shrink-0 text-brand-pink"
                         aria-label="Read"
-                        role="img"
                     />
                 );
             case "delivered":
@@ -156,7 +206,6 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                     <CheckCheck
                         className="h-4 w-4 shrink-0 text-muted-foreground"
                         aria-label="Delivered"
-                        role="img"
                     />
                 );
             case "sent":
@@ -165,13 +214,11 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                     <Check
                         className="h-4 w-4 shrink-0 text-muted-foreground"
                         aria-label="Sent"
-                        role="img"
                     />
                 );
         }
     };
 
-    // ── Empty states ──────────────────────────────────────────────
     if (conversations.length === 0) {
         return (
             <div className="px-4 py-8 text-center">
@@ -208,17 +255,14 @@ export default function ConversationList({ activeId, query = "" }: Props) {
         );
     }
 
-    // ── List ──────────────────────────────────────────────────────
     return (
         <ul className="py-1">
-            {filtered.map((conversation) => {
-                const active =
-                    String(activeId ?? "") === String(conversation.id);
-
+            {filtered.map((c) => {
+                const active = String(activeId ?? "") === String(c.id);
                 return (
-                    <li key={conversation.id}>
+                    <li key={c.id}>
                         <Link
-                            href={`/conversations/${conversation.id}`}
+                            href={`/conversations/${c.id}`}
                             className={cn(
                                 "relative flex items-center gap-3 px-4 py-3 transition-colors",
                                 "hover:bg-accent/50",
@@ -228,36 +272,32 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                         >
                             <div className="relative shrink-0">
                                 <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-gradient-brand text-sm font-semibold text-white">
-                                    {conversation.avatarUrl ? (
+                                    {c.avatarUrl ? (
                                         <img
-                                            src={conversation.avatarUrl}
-                                            alt={conversation.name}
+                                            src={c.avatarUrl}
+                                            alt={c.name}
                                             className="h-full w-full object-cover"
                                         />
                                     ) : (
-                                        (conversation.name
-                                            ?.charAt(0)
-                                            .toUpperCase() ?? "?")
+                                        (c.name?.charAt(0).toUpperCase() ?? "?")
                                     )}
                                 </div>
-                                {conversation.online && (
+                                {c.online && (
                                     <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-brand-green" />
                                 )}
                             </div>
-
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-2">
                                     <p className="flex min-w-0 items-center gap-1 text-sm font-medium text-foreground">
                                         <span
                                             className={cn(
                                                 "truncate",
-                                                conversation.unread > 0 &&
-                                                    "font-semibold",
+                                                c.unread > 0 && "font-semibold",
                                             )}
                                         >
-                                            {conversation.name}
+                                            {c.name}
                                         </span>
-                                        {conversation.verified && (
+                                        {c.verified && (
                                             <BadgeCheck
                                                 className="h-3.5 w-3.5 shrink-0 text-brand-pink"
                                                 aria-label="Verified"
@@ -267,33 +307,31 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                                     <span
                                         className={cn(
                                             "ml-2 shrink-0 text-xs tabular-nums",
-                                            conversation.unread > 0
+                                            c.unread > 0
                                                 ? "text-brand-pink font-medium"
                                                 : "text-muted-foreground",
                                         )}
                                     >
-                                        {conversation.time}
+                                        {c.time}
                                     </span>
                                 </div>
-
                                 <div className="mt-0.5 flex items-center justify-between gap-2">
                                     <div className="flex min-w-0 flex-1 items-center gap-1">
-                                        {renderMessageStatus(conversation)}
+                                        {renderMessageStatus(c)}
                                         <p
                                             className={cn(
                                                 "truncate text-sm",
-                                                conversation.unread > 0
+                                                c.unread > 0
                                                     ? "text-foreground/80"
                                                     : "text-muted-foreground",
                                             )}
                                         >
-                                            {conversation.lastMessage}
+                                            {c.lastMessage}
                                         </p>
                                     </div>
-
-                                    {conversation.unread > 0 && (
+                                    {c.unread > 0 && (
                                         <span className="relative ml-2 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-gradient-brand px-1.5 text-[11px] font-semibold text-white shadow-glow-pink/40">
-                                            {conversation.unread}
+                                            {c.unread}
                                         </span>
                                     )}
                                 </div>

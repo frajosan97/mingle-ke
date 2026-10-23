@@ -1,25 +1,24 @@
-// resources/js/components/conversation/message-bubble.tsx
-import { useState, useRef, useEffect, useCallback } from "react";
-import type { ConversationMessage } from "@/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ConversationMessage, MessageAttachment } from "@/types";
 import {
     Check,
     CheckCheck,
-    Trash2,
-    FileText,
     ChevronDown,
-    Reply,
     Copy,
-    Download,
     Forward,
+    Reply,
     Star,
-    Mic,
-    Play,
-    Pause,
+    Trash2,
+    FileWarning,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import BubbleShell from "@/components/conversation/bubble-shell";
-
-type Attachment = NonNullable<ConversationMessage["attachments"]>[number];
+import {
+    AudioBubble,
+    FileBubble,
+    MediaGridBubble,
+    StickerBubble,
+} from "@/components/conversation/bubbles";
 
 interface Props {
     message: ConversationMessage;
@@ -28,7 +27,49 @@ interface Props {
     onDelete?: (message: ConversationMessage) => void;
     onForward?: (message: ConversationMessage) => void;
     onStar?: (message: ConversationMessage) => void;
-    onDownload?: (attachment: Attachment) => void;
+    onDownload?: (attachment: MessageAttachment) => void;
+    onMediaClick?: (url: string) => void;
+}
+
+type CompatibleMessage = ConversationMessage & {
+    content?: string | null;
+    createdAt?: string | null;
+};
+
+type AttachmentWithUrl = MessageAttachment & { url: string };
+
+function hasUsableUrl(a: MessageAttachment): a is AttachmentWithUrl {
+    return typeof a.url === "string" && a.url.trim().length > 0;
+}
+
+function getAttachmentType(
+    a: MessageAttachment,
+): "image" | "video" | "audio" | "file" {
+    const type = String(a.type ?? "").toLowerCase();
+    if (
+        type === "image" ||
+        type === "video" ||
+        type === "audio" ||
+        type === "file"
+    ) {
+        return type;
+    }
+    const mime = a.mime_type?.toLowerCase() ?? "";
+    if (mime.startsWith("image/")) return "image";
+    if (mime.startsWith("video/")) return "video";
+    if (mime.startsWith("audio/")) return "audio";
+    return "file";
+}
+
+function formatFallbackTime(iso?: string | null): string {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+    });
 }
 
 export default function MessageBubble({
@@ -39,32 +80,77 @@ export default function MessageBubble({
     onForward,
     onStar,
     onDownload,
+    onMediaClick,
 }: Props) {
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!menuOpen) return;
-        const handleClick = (event: MouseEvent) => {
-            if (
-                menuRef.current &&
-                !menuRef.current.contains(event.target as Node)
-            ) {
+        const close = (event: MouseEvent) => {
+            if (!menuRef.current?.contains(event.target as Node)) {
                 setMenuOpen(false);
             }
         };
-        document.addEventListener("mousedown", handleClick);
-        return () => document.removeEventListener("mousedown", handleClick);
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
     }, [menuOpen]);
 
     const closeMenu = useCallback(() => setMenuOpen(false), []);
 
-    const handleCopy = () => {
-        const text = message.content ?? "";
-        if (text) navigator.clipboard?.writeText(text).catch(() => {});
-        onCopy?.(message);
-        closeMenu();
-    };
+    const compatible = message as CompatibleMessage;
+    const body = message.body ?? compatible.content ?? null;
+    const hasBody = typeof body === "string" && body.trim().length > 0;
+
+    const {
+        withUrl,
+        imagesAndVideos,
+        audio,
+        files,
+        missingUrl,
+        isSticker,
+        onlyMedia,
+    } = useMemo(() => {
+        const list = [...(message.attachments ?? [])].sort((a, b) => {
+            const pos = (a.position ?? 0) - (b.position ?? 0);
+            return pos !== 0 ? pos : (a.id ?? 0) - (b.id ?? 0);
+        });
+
+        const usable = list.filter(hasUsableUrl);
+        const imagesVideos = usable.filter((a) => {
+            const t = getAttachmentType(a);
+            return t === "image" || t === "video";
+        });
+        const audios = usable.filter((a) => getAttachmentType(a) === "audio");
+        const fileList = usable.filter((a) => getAttachmentType(a) === "file");
+        const missing = list.filter((a) => !hasUsableUrl(a));
+
+        const only =
+            imagesVideos.length > 0 &&
+            !hasBody &&
+            audios.length === 0 &&
+            fileList.length === 0 &&
+            missing.length === 0 &&
+            !message.replyTo;
+
+        const sticker =
+            only &&
+            imagesVideos.length === 1 &&
+            Boolean(
+                imagesVideos[0].mime_type?.includes("webp") ||
+                imagesVideos[0].original_name?.toLowerCase().endsWith(".webp"),
+            );
+
+        return {
+            withUrl: usable,
+            imagesAndVideos: imagesVideos,
+            audio: audios,
+            files: fileList,
+            missingUrl: missing,
+            isSticker: sticker,
+            onlyMedia: only,
+        };
+    }, [message.attachments, message.replyTo, hasBody]);
 
     if (message.deleted) {
         return (
@@ -82,37 +168,24 @@ export default function MessageBubble({
         );
     }
 
-    const attachments = message.attachments ?? [];
-    const mediaAttachments = attachments.filter(
-        (a) => a.mime.startsWith("image/") || a.mime.startsWith("video/"),
-    );
-    const audioAttachments = attachments.filter((a) =>
-        a.mime.startsWith("audio/"),
-    );
-    const fileAttachments = attachments.filter(
-        (a) =>
-            !a.mime.startsWith("image/") &&
-            !a.mime.startsWith("video/") &&
-            !a.mime.startsWith("audio/"),
-    );
+    if (
+        !hasBody &&
+        withUrl.length === 0 &&
+        missingUrl.length === 0 &&
+        !message.replyTo
+    ) {
+        return null;
+    }
 
-    const hasMedia = mediaAttachments.length > 0;
-    const onlyMedia =
-        hasMedia &&
-        !message.content &&
-        fileAttachments.length === 0 &&
-        audioAttachments.length === 0;
-    const isSticker =
-        onlyMedia &&
-        mediaAttachments.length === 1 &&
-        mediaAttachments[0].mime.includes("webp");
-
-    // Colors the tail element used to hardcode now come from tokens.
     const metaText = message.mine ? "text-white/70" : "text-muted-foreground";
-    const tickRead = message.mine ? "text-white" : "text-brand-pink";
-    const tickDefault = message.mine
-        ? "text-white/70"
-        : "text-muted-foreground";
+    const timeLabel = message.time || formatFallbackTime(compatible.createdAt);
+
+    const handleCopy = () => {
+        if (!hasBody || body == null) return;
+        void navigator.clipboard?.writeText(body).catch(() => {});
+        onCopy?.(message);
+        closeMenu();
+    };
 
     return (
         <div
@@ -122,11 +195,10 @@ export default function MessageBubble({
             )}
         >
             <BubbleShell
-                mine={message.mine}
+                mine={message.mine ?? false}
                 bare={onlyMedia}
                 className="group/bubble"
             >
-                {/* Reply preview — brand-left-bar */}
                 {message.replyTo && (
                     <div
                         className={cn(
@@ -157,197 +229,263 @@ export default function MessageBubble({
                     </div>
                 )}
 
-                {hasMedia && (
-                    <MediaGrid
-                        attachments={mediaAttachments}
-                        isSticker={isSticker}
-                        onDownload={onDownload}
-                    />
-                )}
+                {imagesAndVideos.length > 0 &&
+                    (isSticker ? (
+                        <StickerBubble
+                            attachment={imagesAndVideos[0]}
+                            onMediaClick={onMediaClick}
+                        />
+                    ) : (
+                        <MediaGridBubble
+                            attachments={imagesAndVideos}
+                            onDownload={onDownload}
+                            onMediaClick={onMediaClick}
+                        />
+                    ))}
 
-                {audioAttachments.map((att, i) => (
-                    <AudioPlayer
-                        key={`audio-${i}`}
-                        src={att.url}
-                        name={att.name}
+                {audio.map((attachment) => (
+                    <AudioBubble
+                        key={attachment.id}
+                        attachment={attachment}
                         mine={message.mine}
                     />
                 ))}
 
-                {fileAttachments.length > 0 && (
-                    <div className="mb-1 space-y-1">
-                        {fileAttachments.map((att, i) => (
-                            <a
-                                key={`file-${i}`}
-                                href={att.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                download={att.name}
-                                className={cn(
-                                    "flex items-center gap-2 rounded-lg p-2 transition-colors",
-                                    message.mine
-                                        ? "bg-black/15 hover:bg-black/25 text-white"
-                                        : "bg-muted/60 hover:bg-muted text-foreground",
-                                )}
-                            >
-                                <span
-                                    className={cn(
-                                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                                        message.mine
-                                            ? "bg-white/20 text-white"
-                                            : "bg-brand-pink/15 text-brand-pink",
-                                    )}
-                                >
-                                    <FileText className="h-4 w-4" />
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                    <span className="block truncate text-xs font-medium">
-                                        {att.name}
-                                    </span>
-                                    {att.size != null && (
-                                        <span
-                                            className={cn(
-                                                "block text-[10px]",
-                                                message.mine
-                                                    ? "text-white/70"
-                                                    : "text-muted-foreground",
-                                            )}
-                                        >
-                                            {formatBytes(att.size)}
-                                        </span>
-                                    )}
-                                </span>
-                                <Download className="h-4 w-4 shrink-0 opacity-70" />
-                            </a>
+                {files.length > 0 && (
+                    <div className="mb-1 min-w-0 space-y-1">
+                        {files.map((attachment) => (
+                            <FileBubble
+                                key={attachment.id}
+                                attachment={attachment}
+                                mine={message.mine}
+                                onDownload={onDownload}
+                            />
                         ))}
                     </div>
                 )}
 
-                {message.content && (
-                    <div className="flex items-end justify-between gap-2">
-                        <p className="whitespace-pre-wrap break-words pr-14">
-                            {message.content}
-                        </p>
+                {missingUrl.length > 0 && (
+                    <div className="mb-1 space-y-1">
+                        {missingUrl.map((attachment) => (
+                            <div
+                                key={attachment.id}
+                                className={cn(
+                                    "flex items-center gap-2 rounded-lg p-2 text-xs",
+                                    message.mine
+                                        ? "bg-black/15 text-white"
+                                        : "bg-muted text-muted-foreground",
+                                )}
+                            >
+                                <FileWarning className="h-4 w-4 shrink-0" />
+                                <span className="min-w-0 break-words">
+                                    {attachment.original_name ?? "Attachment"} —
+                                    file URL is missing
+                                </span>
+                            </div>
+                        ))}
                     </div>
                 )}
 
-                {!onlyMedia && (
+                {hasBody && (
+                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] pr-14">
+                        {body}
+                    </p>
+                )}
+
+                {onlyMedia ? (
+                    <span className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md bg-black/50 px-1.5 py-0.5 text-[10px] text-white backdrop-blur-sm">
+                        {timeLabel}
+                        <Ticks
+                            read={message.read}
+                            delivered={message.delivered}
+                            mine={message.mine}
+                            variant="overlay"
+                        />
+                    </span>
+                ) : (
                     <span
                         className={cn(
                             "absolute bottom-1 right-2 flex items-center gap-1 text-[11px] tabular-nums",
                             metaText,
                         )}
                     >
-                        {message.time}
-                        {message.mine &&
-                            (message.read ? (
-                                <CheckCheck
-                                    className={cn("h-3.5 w-3.5", tickRead)}
-                                />
-                            ) : message.delivered ? (
-                                <CheckCheck
-                                    className={cn("h-3.5 w-3.5", tickDefault)}
-                                />
-                            ) : (
-                                <Check
-                                    className={cn("h-3.5 w-3.5", tickDefault)}
-                                />
-                            ))}
+                        {timeLabel}
+                        <Ticks
+                            read={message.read}
+                            delivered={message.delivered}
+                            mine={message.mine}
+                            variant="inline"
+                        />
                     </span>
                 )}
 
-                {/* Options menu */}
-                <div ref={menuRef} className="absolute right-1 top-1 z-20">
-                    <button
-                        type="button"
-                        onClick={() => setMenuOpen((v) => !v)}
-                        className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-full transition-opacity duration-200",
-                            "opacity-0 group-hover/bubble:opacity-100 focus-visible:opacity-100",
-                            message.mine
-                                ? "text-white/80 hover:bg-black/20"
-                                : "text-muted-foreground hover:bg-muted",
-                            menuOpen && "opacity-100",
-                            onlyMedia &&
-                                "bg-black/40 text-white hover:bg-black/60",
-                        )}
-                        aria-label="Message options"
-                    >
-                        <ChevronDown className="h-4 w-4" />
-                    </button>
-
-                    {menuOpen && (
-                        <div
-                            className={cn(
-                                "absolute top-7 z-50 w-48 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg",
-                                message.mine ? "right-0" : "left-0",
-                            )}
-                        >
-                            <MenuButton
-                                icon={<Reply className="h-4 w-4" />}
-                                label="Reply"
-                                onClick={() => {
-                                    onReply?.(message);
-                                    closeMenu();
-                                }}
-                            />
-                            {message.content && (
-                                <MenuButton
-                                    icon={<Copy className="h-4 w-4" />}
-                                    label="Copy"
-                                    onClick={handleCopy}
-                                />
-                            )}
-                            <MenuButton
-                                icon={<Forward className="h-4 w-4" />}
-                                label="Forward"
-                                onClick={() => {
-                                    onForward?.(message);
-                                    closeMenu();
-                                }}
-                            />
-                            <MenuButton
-                                icon={<Star className="h-4 w-4" />}
-                                label="Star message"
-                                onClick={() => {
-                                    onStar?.(message);
-                                    closeMenu();
-                                }}
-                            />
-                            <MenuButton
-                                icon={<Trash2 className="h-4 w-4" />}
-                                label="Delete"
-                                danger
-                                onClick={() => {
-                                    onDelete?.(message);
-                                    closeMenu();
-                                }}
-                            />
-                        </div>
-                    )}
-                </div>
-
-                {onlyMedia && (
-                    <span className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md bg-black/50 px-1.5 py-0.5 text-[10px] text-white backdrop-blur-sm">
-                        {message.time}
-                        {message.mine &&
-                            (message.read ? (
-                                <CheckCheck className="h-3 w-3 text-white" />
-                            ) : message.delivered ? (
-                                <CheckCheck className="h-3 w-3 text-white/70" />
-                            ) : (
-                                <Check className="h-3 w-3 text-white/70" />
-                            ))}
-                    </span>
-                )}
+                <BubbleMenu
+                    menuOpen={menuOpen}
+                    setMenuOpen={setMenuOpen}
+                    menuRef={menuRef}
+                    mine={message.mine}
+                    onlyMedia={onlyMedia}
+                    onReply={() => {
+                        onReply?.(message);
+                        closeMenu();
+                    }}
+                    onCopy={hasBody ? handleCopy : undefined}
+                    onForward={() => {
+                        onForward?.(message);
+                        closeMenu();
+                    }}
+                    onStar={() => {
+                        onStar?.(message);
+                        closeMenu();
+                    }}
+                    onDelete={() => {
+                        onDelete?.(message);
+                        closeMenu();
+                    }}
+                />
             </BubbleShell>
         </div>
     );
 }
 
-/* ----------------------------- Sub-components ----------------------------- */
+function Ticks({
+    read,
+    delivered,
+    variant,
+    mine,
+}: {
+    read?: boolean;
+    delivered?: boolean;
+    variant: "inline" | "overlay";
+    mine?: boolean;
+}) {
+    // Standard Strictness: Never show ticks on received messages
+    if (!mine) return null;
 
-function MenuButton({
+    if (variant === "overlay") {
+        return read ? (
+            <CheckCheck className="h-3 w-3 text-brand-pink" aria-label="Read" />
+        ) : delivered ? (
+            <CheckCheck
+                className="h-3 w-3 text-white/70"
+                aria-label="Delivered"
+            />
+        ) : (
+            <Check className="h-3 w-3 text-white/70" aria-label="Sent" />
+        );
+    }
+
+    return read ? (
+        <CheckCheck className="h-3.5 w-3.5 text-brand-pink" aria-label="Read" />
+    ) : delivered ? (
+        <CheckCheck
+            className={cn(
+                "h-3.5 w-3.5",
+                mine ? "text-white/80" : "text-muted-foreground",
+            )}
+            aria-label="Delivered"
+        />
+    ) : (
+        <Check
+            className={cn(
+                "h-3.5 w-3.5",
+                mine ? "text-white/80" : "text-muted-foreground",
+            )}
+            aria-label="Sent"
+        />
+    );
+}
+
+function BubbleMenu({
+    menuOpen,
+    setMenuOpen,
+    menuRef,
+    mine,
+    onlyMedia,
+    onReply,
+    onCopy,
+    onForward,
+    onStar,
+    onDelete,
+}: {
+    menuOpen: boolean;
+    setMenuOpen: (value: boolean) => void;
+    menuRef: React.RefObject<HTMLDivElement | null>;
+    mine?: boolean;
+    onlyMedia: boolean;
+    onReply: () => void;
+    onCopy?: () => void;
+    onForward: () => void;
+    onStar: () => void;
+    onDelete: () => void;
+}) {
+    return (
+        <div ref={menuRef} className="absolute right-1 top-1 z-20">
+            <button
+                type="button"
+                onClick={() => setMenuOpen(!menuOpen)}
+                className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-full transition-opacity duration-200",
+                    "opacity-0 group-hover/bubble:opacity-100 focus-visible:opacity-100",
+                    mine
+                        ? "text-white/80 hover:bg-black/20"
+                        : "text-muted-foreground hover:bg-muted",
+                    menuOpen && "opacity-100",
+                    onlyMedia && "bg-black/40 text-white hover:bg-black/60",
+                )}
+                aria-label="Message options"
+                aria-expanded={menuOpen}
+            >
+                <ChevronDown className="h-4 w-4" />
+            </button>
+
+            {menuOpen && (
+                <div
+                    className={cn(
+                        "absolute top-7 z-50 w-48 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg",
+                        mine ? "right-0" : "left-0",
+                    )}
+                    role="menu"
+                >
+                    <MenuItem
+                        icon={<Reply className="h-4 w-4" />}
+                        label="Reply"
+                        onClick={onReply}
+                    />
+
+                    {onCopy && (
+                        <MenuItem
+                            icon={<Copy className="h-4 w-4" />}
+                            label="Copy"
+                            onClick={onCopy}
+                        />
+                    )}
+
+                    <MenuItem
+                        icon={<Forward className="h-4 w-4" />}
+                        label="Forward"
+                        onClick={onForward}
+                    />
+
+                    <MenuItem
+                        icon={<Star className="h-4 w-4" />}
+                        label="Star message"
+                        onClick={onStar}
+                    />
+
+                    <MenuItem
+                        icon={<Trash2 className="h-4 w-4" />}
+                        label="Delete"
+                        onClick={onDelete}
+                        danger
+                    />
+                </div>
+            )}
+        </div>
+    );
+}
+
+function MenuItem({
     icon,
     label,
     onClick,
@@ -378,212 +516,4 @@ function MenuButton({
             {label}
         </button>
     );
-}
-
-function MediaGrid({
-    attachments,
-    isSticker,
-    onDownload,
-}: {
-    attachments: Attachment[];
-    isSticker: boolean;
-    onDownload?: (a: Attachment) => void;
-}) {
-    if (isSticker) {
-        const att = attachments[0];
-        return (
-            <div className="p-1">
-                <img
-                    src={att.url}
-                    alt={att.name}
-                    className="h-32 w-32 object-contain"
-                />
-            </div>
-        );
-    }
-
-    const count = attachments.length;
-    const gridClass = count === 1 ? "grid-cols-1" : "grid-cols-2";
-
-    return (
-        <div
-            className={cn(
-                "mb-1 grid max-w-[320px] gap-0.5 overflow-hidden rounded-lg",
-                gridClass,
-            )}
-        >
-            {attachments.slice(0, 4).map((att, i) => {
-                const isVideo = att.mime.startsWith("video/");
-                const showOverlay = count > 4 && i === 3;
-                return (
-                    <div
-                        key={i}
-                        className={cn(
-                            "relative bg-black",
-                            count === 1
-                                ? "max-h-80"
-                                : count === 2
-                                  ? "aspect-square"
-                                  : i === 0
-                                    ? "row-span-2 aspect-[1/2]"
-                                    : "aspect-square",
-                        )}
-                    >
-                        {isVideo ? (
-                            <video
-                                src={att.url}
-                                controls
-                                className="h-full w-full object-cover"
-                            />
-                        ) : (
-                            <a
-                                href={att.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="block h-full w-full"
-                            >
-                                <img
-                                    src={att.url}
-                                    alt={att.name}
-                                    className="h-full w-full object-cover"
-                                />
-                            </a>
-                        )}
-
-                        {showOverlay && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-2xl font-semibold text-white">
-                                +{count - 4}
-                            </div>
-                        )}
-
-                        {onDownload && !isVideo && (
-                            <button
-                                type="button"
-                                onClick={() => onDownload(att)}
-                                className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white opacity-0 transition group-hover:opacity-100"
-                                aria-label={`Download ${att.name}`}
-                            >
-                                <Download className="h-3.5 w-3.5" />
-                            </button>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-function AudioPlayer({
-    src,
-    name,
-    mine,
-}: {
-    src: string;
-    name: string;
-    mine: boolean;
-}) {
-    const audioRef = useRef<HTMLAudioElement>(null);
-    const [playing, setPlaying] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const [duration, setDuration] = useState(0);
-
-    const toggle = () => {
-        const audio = audioRef.current;
-        if (!audio) return;
-        if (playing) audio.pause();
-        else audio.play().catch(() => {});
-    };
-
-    return (
-        <div
-            className={cn(
-                "mb-1 flex min-w-[220px] items-center gap-2 rounded-lg p-2",
-                mine ? "bg-black/15" : "bg-muted/60",
-            )}
-        >
-            <audio
-                ref={audioRef}
-                src={src}
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-                onEnded={() => {
-                    setPlaying(false);
-                    setProgress(0);
-                }}
-                onTimeUpdate={(e) => setProgress(e.currentTarget.currentTime)}
-                onLoadedMetadata={(e) =>
-                    setDuration(e.currentTarget.duration || 0)
-                }
-                className="hidden"
-            />
-            <button
-                type="button"
-                onClick={toggle}
-                aria-label={playing ? "Pause" : "Play"}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-white shadow-glow-pink/30 transition hover:shadow-glow-pink"
-            >
-                {playing ? (
-                    <Pause className="h-4 w-4" />
-                ) : (
-                    <Play className="h-4 w-4" />
-                )}
-            </button>
-            <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                    <Mic
-                        className={cn(
-                            "h-3 w-3",
-                            mine ? "text-white/70" : "text-muted-foreground",
-                        )}
-                    />
-                    <span
-                        className={cn(
-                            "truncate text-xs font-medium",
-                            mine ? "text-white" : "text-foreground",
-                        )}
-                    >
-                        {name}
-                    </span>
-                </div>
-                <div
-                    className={cn(
-                        "mt-1 h-1 overflow-hidden rounded-full",
-                        mine ? "bg-white/20" : "bg-border",
-                    )}
-                >
-                    <div
-                        className="h-full rounded-full bg-gradient-brand transition-[width]"
-                        style={{
-                            width: duration
-                                ? `${(progress / duration) * 100}%`
-                                : "0%",
-                        }}
-                    />
-                </div>
-            </div>
-            <span
-                className={cn(
-                    "shrink-0 text-[10px] tabular-nums",
-                    mine ? "text-white/70" : "text-muted-foreground",
-                )}
-            >
-                {formatDuration(progress)} / {formatDuration(duration)}
-            </span>
-        </div>
-    );
-}
-
-/* -------------------------------- Helpers -------------------------------- */
-
-function formatBytes(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDuration(seconds: number) {
-    if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
 }

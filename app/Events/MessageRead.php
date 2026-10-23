@@ -13,13 +13,18 @@ class MessageRead implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public function __construct(public Message $message, public int $userId)
-    {
+    public function __construct(
+        public Message $message,
+        public int $userId,
+    ) {
     }
 
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('conversation.' . $this->message->conversation_id)];
+        return [
+            new PrivateChannel('conversation.' . $this->message->conversation_id),
+            new PrivateChannel('user.' . $this->message->sender_id), // <-- Added for sidebar
+        ];
     }
 
     public function broadcastAs(): string
@@ -30,7 +35,9 @@ class MessageRead implements ShouldBroadcast
     public function broadcastWith(): array
     {
         return [
-            'message_id' => $this->message->id,
+            'message_id' => (int) $this->message->id,
+            'conversation_id' => (int) $this->message->conversation_id, // <-- Added for sidebar
+            'sender_id' => (int) $this->message->sender_id,
             'user_id' => $this->userId,
             'read_at' => now()->toISOString(),
         ];

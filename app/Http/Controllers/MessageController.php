@@ -7,6 +7,7 @@ use App\Http\Resources\MessageResource;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\Message;
+use App\Models\MessageRead;
 use App\Services\Chat\ConversationBroadcastService;
 use App\Services\Chat\MessageService;
 use Illuminate\Http\Request;
@@ -15,8 +16,8 @@ use Illuminate\Support\Facades\DB;
 class MessageController extends Controller
 {
     public function __construct(
-        private MessageService $messages,
-        private ConversationBroadcastService $broadcaster,
+        private readonly MessageService $messages,
+        private readonly ConversationBroadcastService $broadcaster,
     ) {
     }
 
@@ -24,17 +25,18 @@ class MessageController extends Controller
     {
         $this->authorize('participate', $conversation);
 
+        // MessageService::send() owns the MessageSent broadcast — do not
+        // broadcast again here or the sender/receiver see two events.
         $message = $this->messages->send(
             conversation: $conversation,
             senderId: (int) $request->user()->id,
-            body: $request->input('body'),
-            files: $request->uploadedFiles(),
-            requestedType: $request->input('type'),
+            body: $request->validated('body'),
+            files: $request->classifiedFiles(),
         );
 
-        return (new MessageResource($message))
-            ->response()
-            ->setStatusCode(201);
+        return (new MessageResource($message, [
+            'viewerId' => (int) $request->user()->id,
+        ]))->response()->setStatusCode(201);
     }
 
     public function markRead(Request $request, Conversation $conversation)
@@ -43,69 +45,91 @@ class MessageController extends Controller
 
         $userId = (int) $request->user()->id;
 
-        $unread = DB::transaction(function () use ($conversation, $userId) {
-            $messages = Message::query()
-                ->where('conversation_id', $conversation->id)
-                ->where('sender_id', '!=', $userId)
-                ->whereDoesntHave('reads', fn($q) => $q->where('user_id', $userId))
-                ->get();
+        $unreadIds = Message::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('sender_id', '!=', $userId)
+            ->whereDoesntHave('reads', fn($q) => $q->where('user_id', $userId))
+            ->pluck('id');
 
-            foreach ($messages as $message) {
-                $message->reads()->firstOrCreate(
-                    ['user_id' => $userId],
-                    ['read_at' => now()],
-                );
-            }
+        if ($unreadIds->isEmpty()) {
+            return response()->json(['ok' => true, 'count' => 0]);
+        }
+
+        $now = now();
+
+        $inserted = DB::transaction(function () use ($unreadIds, $conversation, $userId, $now) {
+            $rows = $unreadIds->map(fn($id) => [
+                'message_id' => $id,
+                'user_id' => $userId,
+                'read_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])->all();
+
+            $count = MessageRead::insertOrIgnore($rows);
 
             ConversationParticipant::query()
                 ->where('conversation_id', $conversation->id)
                 ->where('user_id', $userId)
-                ->update(['unread_count' => 0, 'last_read_at' => now()]);
+                ->whereNull('deleted_at')
+                ->update([
+                    'unread_count' => 0,
+                    'last_read_at' => $now,
+                ]);
 
-            return $messages;
+            return $count;
         });
 
-        foreach ($unread as $message) {
-            $this->broadcaster->broadcastRead($message, $userId);
+        if ($inserted > 0) {
+            // Delegate to the broadcaster; it hydrates Message instances
+            // from the conversation relation (typed, no \stdClass).
+            $this->broadcaster->broadcastReadMany($conversation, $userId, $unreadIds);
         }
 
-        $this->broadcaster->broadcastSidebarUpdate($userId, [
-            'id' => $conversation->id,
-            'unread' => 0,
-        ]);
-
-        $this->broadcaster->broadcastLastMessageStatus($conversation, $userId, 'read');
-
-        return response()->json(['ok' => true, 'count' => $unread->count()]);
+        return response()->json(['ok' => true, 'count' => $inserted]);
     }
 
-    public function markDelivered(Conversation $conversation)
+    public function markDelivered(Request $request, Conversation $conversation)
     {
         $this->authorize('participate', $conversation);
 
-        $userId = (int) auth()->id();
+        $userId = (int) $request->user()->id;
 
-        $participant = ConversationParticipant::query()
+        $participant = $conversation->participantFor($userId);
+        abort_if($participant === null, 403);
+
+        $query = Message::query()
             ->where('conversation_id', $conversation->id)
-            ->where('user_id', $userId)
-            ->firstOrFail();
+            ->where('sender_id', '!=', $userId);
 
-        if (
-            !$participant->last_delivered_at
-            || $participant->last_delivered_at->lt(now()->subSeconds(2))
-        ) {
-            $participant->markDelivered();
+        if ($participant->last_delivered_at !== null) {
+            $query->where('created_at', '>', $participant->last_delivered_at);
         }
 
-        $this->broadcaster->broadcastLastMessageStatus($conversation, $userId, 'delivered');
+        $deliveredIds = $query->orderBy('created_at')->orderBy('id')->pluck('id');
 
-        return response()->json(['ok' => true]);
+        if ($deliveredIds->isEmpty()) {
+            return response()->json(['ok' => true, 'changed' => false]);
+        }
+
+        $participant->markDelivered();
+
+        $this->broadcaster->broadcastDeliveredMany($conversation, $userId, $deliveredIds);
+
+        return response()->json(['ok' => true, 'changed' => true]);
     }
 
     public function destroy(Request $request, Message $message)
     {
-        abort_unless((int) $message->sender_id === (int) $request->user()->id, 403);
+        $this->authorize('participate', $message->conversation);
 
+        abort_unless(
+            (int) $message->sender_id === (int) $request->user()->id,
+            403,
+            'You can only delete your own messages.',
+        );
+
+        // MessageService::delete() owns the MessageDeleted broadcast.
         $this->messages->delete($message);
 
         return response()->json(['ok' => true]);

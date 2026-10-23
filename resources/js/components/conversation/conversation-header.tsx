@@ -15,6 +15,32 @@ interface Props {
     online?: boolean;
     typingUser?: string | null;
     verified?: boolean;
+    /** Raw ISO timestamp or already-formatted string from the backend. */
+    lastSeen?: string | null;
+}
+
+function formatLastSeen(lastSeen?: string | null): string | null {
+    if (!lastSeen) return null;
+
+    const date = new Date(lastSeen);
+    if (Number.isNaN(date.getTime())) {
+        return lastSeen;
+    }
+
+    const diffMs = Date.now() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60_000);
+
+    if (diffMin < 1) return "last seen just now";
+    if (diffMin < 60) return `last seen ${diffMin}m ago`;
+
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `last seen ${diffHr}h ago`;
+
+    const diffDay = Math.floor(diffHr / 24);
+    if (diffDay === 1) return "last seen yesterday";
+    if (diffDay < 7) return `last seen ${diffDay}d ago`;
+
+    return `last seen ${date.toLocaleDateString()}`;
 }
 
 export default function ConversationHeader({
@@ -23,12 +49,13 @@ export default function ConversationHeader({
     online = false,
     typingUser = null,
     verified = false,
+    lastSeen = null,
 }: Props) {
     const status = typingUser
         ? `${typingUser} is typing…`
         : online
           ? "online"
-          : "last seen recently";
+          : (formatLastSeen(lastSeen) ?? "offline");
 
     return (
         <header className="flex h-[60px] shrink-0 items-center justify-between px-4">

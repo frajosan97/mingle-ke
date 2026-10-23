@@ -32,11 +32,17 @@ const sidebarNavItems = [
     },
 ];
 
+interface AuthUser {
+    id: number;
+    name: string;
+    avatar_url?: string | null;
+}
+
 export default function SettingsLayout({ children }: PropsWithChildren) {
     const { isCurrentOrParentUrl } = useCurrentUrl();
     const { props } = usePage();
     const { auth } = props as {
-        auth: { user: { name: string; avatar?: string } };
+        auth: { user: AuthUser | null };
     };
 
     const [search, setSearch] = useState("");
@@ -46,6 +52,9 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
             item.title.toLowerCase().includes(search.toLowerCase()) ||
             item.description.toLowerCase().includes(search.toLowerCase()),
     );
+
+    const avatarUrl = auth?.user?.avatar_url ?? null;
+    const initial = auth?.user?.name?.charAt(0).toUpperCase() || "U";
 
     return (
         <div className="flex h-full w-full flex-col md:flex-row">
@@ -57,7 +66,6 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
                         {auth?.user?.name || "Settings"}
                     </h1>
 
-                    {/* FIXED: Replaced green with brand pink focus */}
                     <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/60 px-3 py-2.5 transition-all focus-within:border-brand-pink/40 focus-within:ring-2 focus-within:ring-brand-pink/20">
                         <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <input
@@ -75,17 +83,15 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
                     {/* Profile Avatar */}
                     <div className="group relative mx-auto mb-8 mt-4 flex w-32 cursor-pointer flex-col items-center justify-center">
                         <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-4 border-background bg-gradient-brand shadow-xl ring-1 ring-border/50 transition-transform hover:scale-105">
-                            {auth?.user?.avatar ? (
+                            {avatarUrl ? (
                                 <img
-                                    src={auth.user.avatar}
-                                    alt="Avatar"
+                                    src={avatarUrl}
+                                    alt={auth?.user?.name ?? "Avatar"}
                                     className="h-full w-full object-cover"
                                 />
                             ) : (
                                 <span className="text-4xl font-bold text-white">
-                                    {auth?.user?.name
-                                        ?.charAt(0)
-                                        .toUpperCase() || "U"}
+                                    {initial}
                                 </span>
                             )}
                         </div>

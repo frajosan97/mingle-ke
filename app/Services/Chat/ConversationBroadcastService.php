@@ -2,13 +2,14 @@
 
 namespace App\Services\Chat;
 
-use App\Events\ConversationUpdated;
 use App\Events\MessageDeleted;
-use App\Events\MessageRead as MessageReadEvent;
+use App\Events\MessageDelivered;
+use App\Events\MessageRead;
 use App\Events\MessageSent;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\Message;
+use Illuminate\Support\Collection;
 
 class ConversationBroadcastService
 {
@@ -16,33 +17,56 @@ class ConversationBroadcastService
     {
         $participants = ConversationParticipant::query()
             ->where('conversation_id', $conversation->id)
-            ->get();
+            ->whereNull('deleted_at')
+            ->get(['user_id']);
 
         foreach ($participants as $participant) {
-            $participantUserId = (int) $participant->user_id;
+            if ((int) $participant->user_id === (int) $message->sender_id) {
+                continue; // <-- CRITICAL: Sender never gets their own MessageSent event
+            }
 
-            $otherUser = (int) $conversation->user_one_id === $participantUserId
-                ? $conversation->userTwo
-                : $conversation->userOne;
-
-            broadcast(new ConversationUpdated(
-                $participantUserId,
-                $this->sidebarPayload(
-                    $conversation,
-                    $message,
-                    $participant,
-                    $otherUser,
-                    $participantUserId,
-                ),
-            ));
+            broadcast(
+                new MessageSent($message, (int) $participant->user_id)
+            )->toOthers();
         }
+    }
 
-        broadcast(new MessageSent($message))->toOthers();
+    /**
+     * @param  Collection<int, mixed>|array<int, mixed>  $messageIds
+     */
+    public function broadcastReadMany(
+        Conversation $conversation,
+        int $viewerId,
+        Collection|array $messageIds,
+    ): void {
+        $this->broadcastStatusMany($conversation, $viewerId, $messageIds, 'read');
+    }
+
+    /**
+     * @param  Collection<int, mixed>|array<int, mixed>  $messageIds
+     */
+    public function broadcastDeliveredMany(
+        Conversation $conversation,
+        int $viewerId,
+        Collection|array $messageIds,
+    ): void {
+        $this->broadcastStatusMany($conversation, $viewerId, $messageIds, 'delivered');
     }
 
     public function broadcastRead(Message $message, int $viewerId): void
     {
-        broadcast(new MessageReadEvent($message, $viewerId))->toOthers();
+        if ((int) $message->sender_id === $viewerId) {
+            return;
+        }
+        broadcast(new MessageRead($message, $viewerId))->toOthers();
+    }
+
+    public function broadcastDelivered(Message $message, int $viewerId): void
+    {
+        if ((int) $message->sender_id === $viewerId) {
+            return;
+        }
+        broadcast(new MessageDelivered($message, $viewerId))->toOthers();
     }
 
     public function broadcastDeleted(int $messageId, int $conversationId): void
@@ -50,58 +74,37 @@ class ConversationBroadcastService
         broadcast(new MessageDeleted($messageId, $conversationId))->toOthers();
     }
 
-    public function broadcastSidebarUpdate(int $userId, array $payload): void
-    {
-        broadcast(new ConversationUpdated($userId, $payload));
-    }
-
-    public function broadcastLastMessageStatus(
+    /**
+     * @param  Collection<int, mixed>|array<int, mixed>  $messageIds
+     */
+    private function broadcastStatusMany(
         Conversation $conversation,
         int $viewerId,
+        Collection|array $messageIds,
         string $status,
     ): void {
-        $latest = Message::query()
-            ->where('conversation_id', $conversation->id)
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->first();
+        /** @var Collection<int, int> $ids */
+        $ids = collect($messageIds)
+            ->map(fn($id) => (int) $id)
+            ->filter(fn(int $id) => $id > 0)
+            ->unique()
+            ->values();
 
-        if (!$latest || (int) $latest->sender_id === $viewerId) {
+        if ($ids->isEmpty()) {
             return;
         }
 
-        if ($latest->reads()->where('user_id', $viewerId)->exists()) {
-            $status = 'read';
-        }
-
-        broadcast(new ConversationUpdated(
-            (int) $latest->sender_id,
-            ['id' => $conversation->id, 'lastMessageStatus' => $status],
-        ));
-    }
-
-    private function sidebarPayload(
-        Conversation $conversation,
-        Message $message,
-        ConversationParticipant $participant,
-        $otherUser,
-        int $participantUserId,
-    ): array {
-        return [
-            'id' => $conversation->id,
-            'name' => $otherUser?->name ?? 'Unknown',
-            'lastMessage' => $conversation->last_message_preview,
-            'time' => $message->created_at->format('H:i'),
-            'lastMessageAt' => $message->created_at->toISOString(),
-            'lastMessageSenderId' => (int) $message->sender_id,
-            'lastMessageStatus' => (int) $message->sender_id === $participantUserId
-                ? 'sent'
-                : null,
-            'unread' => (int) $participant->unread_count,
-            'avatarUrl' => $otherUser?->avatar,
-            'online' => (bool) ($otherUser?->last_active_at?->gt(now()->subMinutes(5)) ?? false),
-            'verified' => (bool) ($otherUser?->is_verified ?? false),
-            'otherUserId' => $otherUser?->id,
-        ];
+        // Use the conversation relation so the analyser sees
+        // Collection<int, Message>, not Collection<int, \stdClass>.
+        $conversation->messages()
+            ->whereIn('id', $ids->all())
+            ->where('sender_id', '!=', $viewerId)
+            ->get(['id', 'sender_id', 'conversation_id', 'created_at'])
+            ->each(function (Message $message) use ($status, $viewerId): void {
+                match ($status) {
+                    'read' => $this->broadcastRead($message, $viewerId),
+                    'delivered' => $this->broadcastDelivered($message, $viewerId),
+                };
+            });
     }
 }

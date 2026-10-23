@@ -7,13 +7,17 @@ use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Fortify\Contracts\PasskeyUser;
 use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
@@ -47,7 +51,9 @@ use NotificationChannels\WebPush\HasPushSubscriptions;
  * @property string|null $remember_token
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
  *
+ * @property-read string|null $avatar_url
  * @property-read UserProfile|null $profile
  * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReview> $reviewsWritten
  * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReview> $reviewsReceived
@@ -59,6 +65,7 @@ use NotificationChannels\WebPush\HasPushSubscriptions;
  * @property-read \Illuminate\Database\Eloquent\Collection<int, Conversation> $conversationsAsTwo
  * @property-read \Illuminate\Database\Eloquent\Collection<int, ConversationParticipant> $conversationParticipants
  * @property-read \Illuminate\Database\Eloquent\Collection<int, Message> $messages
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, MessageAttachment> $messageAttachments
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MessageRead> $messageReads
  */
 #[Fillable([
@@ -89,6 +96,43 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     use HasFactory, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
     use HasSocialAccounts;
     use HasPushSubscriptions;
+    use SoftDeletes;
+
+    /**
+     * Coins granted once on account creation (direct, Google, Facebook, etc.).
+     */
+    public const WELCOME_COINS = 5;
+
+    /**
+     * Attributes automatically appended to the model's array/JSON form.
+     *
+     * @var array<int, string>
+     */
+    protected $appends = [
+        'avatar_url',
+    ];
+
+    // ==================================================================
+    // BOOT HOOKS
+    // ==================================================================
+
+    protected static function booted(): void
+    {
+        static::created(function (User $user): void {
+            // Grant the welcome bonus only when coins were not explicitly set.
+            // The DB default is 0, so this covers direct + social registrations
+            // while preserving any intentional value (seeds, factories, admin).
+            if ((int) $user->coins === 0) {
+                $user->forceFill([
+                    'coins' => self::WELCOME_COINS,
+                ])->saveQuietly();
+            }
+        });
+    }
+
+    // ==================================================================
+    // CASTS & ACCESSORS
+    // ==================================================================
 
     /**
      * @return array<string, string>
@@ -109,6 +153,19 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             'lat' => 'float',
             'lng' => 'float',
         ];
+    }
+
+    /**
+     * Public URL for the stored avatar path, or null if no avatar.
+     * Appended automatically (see $appends) so Inertia props include it.
+     */
+    protected function avatarUrl(): Attribute
+    {
+        return Attribute::make(
+            get: fn() => $this->avatar
+                ? Storage::url($this->avatar)
+                : null,
+        );
     }
 
     // ==================================================================
@@ -197,6 +254,22 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->hasMany(MessageRead::class);
     }
 
+    /**
+     * Attachments on messages this user sent.
+     * Convenience only — most code will go through Message::attachments().
+     */
+    public function messageAttachments(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            MessageAttachment::class,
+            Message::class,
+            'sender_id',   // FK on messages → users.id
+            'message_id',  // FK on message_attachments → messages.id
+            'id',
+            'id'
+        );
+    }
+
     // ==================================================================
     // HELPERS / SCOPES
     // ==================================================================
@@ -208,6 +281,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             && $this->subscription_expires_at->isFuture();
     }
 
+    /** Whether this user has an escort profile (runs a query). */
     public function isEscort(): bool
     {
         return $this->profile()->exists();

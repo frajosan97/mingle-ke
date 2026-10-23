@@ -7,6 +7,7 @@ import {
     Eye,
 } from "lucide-react";
 import { router, usePage } from "@inertiajs/react";
+import { useState } from "react";
 
 export interface Profile {
     id: number;
@@ -28,14 +29,24 @@ export interface Profile {
     isVip?: boolean;
 }
 
+interface AuthUser {
+    id: number;
+    name: string;
+    avatar_url?: string | null;
+}
+
 interface ProfileCardProps {
     profile: Profile;
     onClick?: (profile: Profile) => void;
 }
 
 export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
-    const { auth } = usePage<{ auth: { user: any } }>().props;
+    const { auth } = usePage<{ auth: { user: AuthUser | null } }>().props;
     const isLoggedIn = !!auth?.user;
+
+    // If the stored avatar file is missing/broken, fall back to the initial.
+    const [avatarFailed, setAvatarFailed] = useState(false);
+    const showAvatar = Boolean(profile.avatarUrl) && !avatarFailed;
 
     const handleCardClick = () => {
         if (onClick) {
@@ -49,7 +60,7 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
         e: React.MouseEvent,
         action: "like" | "chat" | "view",
     ) => {
-        e.stopPropagation(); // Prevent card click
+        e.stopPropagation();
 
         if (action !== "view" && !isLoggedIn) {
             router.visit("/login");
@@ -75,12 +86,13 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
             className="group relative flex aspect-[3/4] w-full cursor-pointer flex-col overflow-hidden rounded-2xl bg-muted shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-brand-pink/20"
         >
             {/* Background Image */}
-            {profile.avatarUrl ? (
+            {showAvatar ? (
                 <img
-                    src={profile.avatarUrl}
+                    src={profile.avatarUrl!}
                     alt={profile.name}
                     className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
                     loading="lazy"
+                    onError={() => setAvatarFailed(true)}
                 />
             ) : (
                 <div className="absolute inset-0 flex items-center justify-center bg-gradient-brand-soft text-5xl font-light text-brand-pink/60">
@@ -92,7 +104,7 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-90 transition-opacity duration-300 group-hover:opacity-100" />
 
             {/* Top Badges */}
-            <div className="absolute inset-x-0 top-0 flex items-start justify-between p-3 z-10">
+            <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between p-3">
                 {profile.isVip || profile.isEscort ? (
                     <span className="flex items-center gap-1 rounded-md bg-brand-gold px-2 py-0.5 text-[10px] font-bold tracking-wide text-black shadow-sm backdrop-blur-sm">
                         <Star className="h-3 w-3 fill-black" />
@@ -110,7 +122,7 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
             </div>
 
             {/* Bottom Info Area */}
-            <div className="relative mt-auto w-full p-3 text-white z-10">
+            <div className="relative z-10 mt-auto w-full p-3 text-white">
                 <div className="flex items-end justify-between">
                     <h3 className="truncate text-base font-bold leading-tight">
                         {profile.name}
@@ -136,7 +148,6 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
                 <div className="mt-3 grid grid-rows-[0fr] opacity-0 transition-all duration-300 ease-out group-hover:grid-rows-[1fr] group-hover:opacity-100">
                     <div className="overflow-hidden">
                         <div className="mt-1 flex items-center justify-center gap-2">
-                            {/* View Button */}
                             <button
                                 onClick={(e) => handleAction(e, "view")}
                                 className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-white hover:text-black active:scale-95"
@@ -145,7 +156,6 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
                                 <Eye className="h-4 w-4" />
                             </button>
 
-                            {/* Like & Chat (Auth Only) */}
                             {isLoggedIn && (
                                 <>
                                     <button

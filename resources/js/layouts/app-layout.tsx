@@ -10,22 +10,26 @@ import {
     BadgeCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import ConversationList from "@/components/conversation/conversation-list";
 import { useAutoLocation } from "@/hooks/use-auto-location";
+import ConversationList from "@/components/conversation/conversation-list";
 import PushNotifications from "@/components/push-notifications";
 
 interface Props extends PropsWithChildren {
     showInbox?: boolean;
 }
 
+interface AuthUser {
+    id: number;
+    name: string;
+    avatar_url?: string | null;
+}
+
 export default function AppLayout({ children, showInbox = false }: Props) {
     useAutoLocation();
 
-    <PushNotifications />;
-
     const { props, url } = usePage();
     const { auth } = props as {
-        auth: { user: { id: number; name: string } | null };
+        auth: { user: AuthUser | null };
     };
 
     const [search, setSearch] = useState("");
@@ -35,11 +39,6 @@ export default function AppLayout({ children, showInbox = false }: Props) {
 
     const isInboxRoute = url === "/conversations" || url === "/";
 
-    // Show inbox on:
-    //  - /conversations (list view)
-    //  - / (root)
-    //  - Any /conversations/:id (so desktop users see sidebar while chatting)
-    //  - Explicit showInbox prop from a page
     const shouldShowInbox = showInbox || isInboxRoute || isConversationOpen;
 
     const navItems = [
@@ -48,32 +47,47 @@ export default function AppLayout({ children, showInbox = false }: Props) {
             href: "/conversations",
             icon: MessageCircle,
             active: url.startsWith("/conversations"),
+            isProfile: false,
         },
         {
             label: "Discover",
             href: "/discover",
             icon: Compass,
             active: url.startsWith("/discover"),
+            isProfile: false,
         },
         {
             label: "Matches",
             href: "/matches",
             icon: Heart,
             active: url.startsWith("/matches"),
+            isProfile: false,
         },
         {
             label: "Favorites",
             href: "/favorites",
             icon: Star,
             active: url.startsWith("/favorites"),
+            isProfile: false,
         },
     ];
 
     const isProfileActive =
         url.startsWith("/profile") || url.startsWith("/settings");
 
+    const avatarUrl = auth.user?.avatar_url ?? null;
+    const initial = auth.user?.name?.charAt(0).toUpperCase() ?? "?";
+
     return (
-        <div className="flex h-screen w-full overflow-hidden bg-background">
+        <div
+            className={cn(
+                "flex h-screen w-full overflow-hidden bg-background",
+                "pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0",
+            )}
+        >
+            {/* Global push notification bootstrap */}
+            {/* <PushNotifications /> */}
+
             {/* ── Column 1: Left Nav Rail ─────────────────────────── */}
             <aside className="hidden w-[68px] flex-col items-center border-r border-border bg-muted/40 py-4 md:flex">
                 <nav className="flex flex-1 flex-col items-center gap-3">
@@ -113,7 +127,15 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                                     "shadow-glow-pink-strong ring-brand-pink",
                             )}
                         >
-                            {auth.user?.name?.charAt(0).toUpperCase() ?? "?"}
+                            {avatarUrl ? (
+                                <img
+                                    src={avatarUrl}
+                                    alt={auth.user?.name ?? "Profile"}
+                                    className="h-full w-full object-cover"
+                                />
+                            ) : (
+                                initial
+                            )}
                         </div>
                         <BadgeCheck className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-background text-brand-green" />
                     </Link>
@@ -125,8 +147,6 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                 <aside
                     className={cn(
                         "flex w-full flex-col border-r border-border bg-card md:w-[380px] lg:w-[420px]",
-                        // On mobile, hide the inbox when a chat is open (chat takes full width).
-                        // On desktop (md+), always keep the inbox visible.
                         isConversationOpen && "hidden md:flex",
                     )}
                 >
@@ -162,8 +182,6 @@ export default function AppLayout({ children, showInbox = false }: Props) {
             <main
                 className={cn(
                     "relative min-w-0 flex-1 flex-col overflow-y-auto scrollbar-thin",
-                    // On mobile, only show main content if a chat is open OR
-                    // we're not on a route that also renders an inbox.
                     isConversationOpen
                         ? "flex"
                         : shouldShowInbox
@@ -181,8 +199,14 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                 </div>
             </main>
 
-            {/* ── Mobile Bottom Navigation ─────────────────────────── */}
-            <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-center justify-around border-t border-border bg-card/90 px-2 backdrop-blur-md md:hidden">
+            {/* ── Mobile Bottom Navigation (fixed) ─────────────────── */}
+            <nav
+                className={cn(
+                    "fixed bottom-0 left-0 right-0 z-50 md:hidden",
+                    "flex h-[calc(4rem+env(safe-area-inset-bottom))] items-center justify-around border-t border-border bg-card/90 px-2 backdrop-blur-md",
+                    "pb-[env(safe-area-inset-bottom)]",
+                )}
+            >
                 {[
                     ...navItems,
                     {
@@ -190,9 +214,12 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                         href: "/settings/profile",
                         icon: BadgeCheck,
                         active: isProfileActive,
+                        isProfile: true,
                     },
                 ].map((item) => {
                     const Icon = item.icon;
+                    const showAvatar = item.isProfile && avatarUrl;
+
                     return (
                         <Link
                             key={item.label}
@@ -204,12 +231,27 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                                     : "text-muted-foreground hover:text-foreground",
                             )}
                         >
-                            <Icon
-                                className={cn(
-                                    "h-5 w-5",
-                                    item.active && "fill-brand-pink/20",
-                                )}
-                            />
+                            {showAvatar ? (
+                                <span
+                                    className={cn(
+                                        "flex h-6 w-6 items-center justify-center overflow-hidden rounded-full ring-2 ring-transparent transition-all",
+                                        item.active && "ring-brand-pink",
+                                    )}
+                                >
+                                    <img
+                                        src={avatarUrl!}
+                                        alt={auth.user?.name ?? "Profile"}
+                                        className="h-full w-full object-cover"
+                                    />
+                                </span>
+                            ) : (
+                                <Icon
+                                    className={cn(
+                                        "h-5 w-5",
+                                        item.active && "fill-brand-pink/20",
+                                    )}
+                                />
+                            )}
                             <span className="text-[10px] font-medium">
                                 {item.label}
                             </span>

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
 /**
@@ -17,6 +18,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $last_message_preview
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
  *
  * @property-read User $userOne
  * @property-read User $userTwo
@@ -32,6 +34,8 @@ use Illuminate\Support\Carbon;
 ])]
 class Conversation extends Model
 {
+    use SoftDeletes;
+
     /**
      * @return array<string, string>
      */
@@ -45,14 +49,28 @@ class Conversation extends Model
     // ==================================================================
     // INVARIANT: user_one_id < user_two_id
     // ==================================================================
+
     protected static function booted(): void
     {
-        static::creating(function (Conversation $c) {
-            if ($c->user_one_id > $c->user_two_id) {
-                [$c->user_one_id, $c->user_two_id] = [$c->user_two_id, $c->user_one_id];
+        static::creating(function (Conversation $conversation): void {
+            if ((int) $conversation->user_one_id === (int) $conversation->user_two_id) {
+                throw new \InvalidArgumentException(
+                    'A conversation requires two different users.',
+                );
+            }
+
+            if ((int) $conversation->user_one_id > (int) $conversation->user_two_id) {
+                [
+                    $conversation->user_one_id,
+                    $conversation->user_two_id,
+                ] = [
+                    $conversation->user_two_id,
+                    $conversation->user_one_id,
+                ];
             }
         });
     }
+
 
     // ==================================================================
     // RELATIONSHIPS
@@ -86,17 +104,11 @@ class Conversation extends Model
     // ==================================================================
     // HELPERS
     // ==================================================================
-
-    /** The other user in this 1:1 conversation, from $userId's perspective. */
-    public function otherUserFor(int $userId): ?User
+    public function otherUserFor(int|string $viewerId): ?User
     {
-        if ($this->user_one_id === $userId) {
-            return $this->userTwo;
-        }
-        if ($this->user_two_id === $userId) {
-            return $this->userOne;
-        }
-        return null;
+        return (string) $this->user_one_id === (string) $viewerId
+            ? $this->userTwo
+            : $this->userOne;
     }
 
     /** Participant row for a given user. */
@@ -106,14 +118,20 @@ class Conversation extends Model
             ?? $this->participants()->where('user_id', $userId)->first();
     }
 
-    /** Find or create the canonical 1:1 conversation between two users. */
+    // ==================================================================
+    // STATIC HELPERS
+    // ==================================================================
     public static function between(int $a, int $b): self
     {
         [$one, $two] = $a < $b ? [$a, $b] : [$b, $a];
 
-        $conversation = static::firstOrCreate(
+        $conversation = static::withTrashed()->firstOrCreate(
             ['user_one_id' => $one, 'user_two_id' => $two]
         );
+
+        if ($conversation->trashed()) {
+            $conversation->restore();
+        }
 
         if ($conversation->wasRecentlyCreated) {
             $conversation->participants()->createMany([

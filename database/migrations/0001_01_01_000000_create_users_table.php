@@ -67,13 +67,16 @@ return new class extends Migration {
 
             $table->rememberToken();
             $table->timestamps();
+            $table->softDeletes();
 
             // --- Indexes ---
             $table->index(['tier', 'subscription_expires_at'], 'users_tier_sub_expires_idx');
             $table->index(['subscription_plan', 'subscription_expires_at'], 'users_sub_plan_expires_idx');
             $table->index(['lat', 'lng'], 'users_location_idx');
-            $table->index(['provider_name', 'provider_id'], 'users_provider_idx');
             $table->index('last_active_at', 'users_last_active_idx');
+            // NOTE: users_provider_idx was indexing provider_name / provider_id,
+            // but neither column exists on this table. Removed to avoid a
+            // "Unknown column" error at migrate time.
         });
 
         /*
@@ -157,9 +160,9 @@ return new class extends Migration {
         | user_reviews
         |------------------------------------------------------------------
         | A user leaves a rating + review about an escort.
-        | Uniqueness: one review per (reviewer, escort) pair.
-        | FK targets are `users`, not `user_profiles`, because reviews
-        | outlive a deleted listing and we never want orphan escorts.
+        | Uniqueness: one ACTIVE review per (reviewer, escort) pair.
+        | Including deleted_at in the unique index lets a user re-post a
+        | review after their previous one was (soft) removed.
         */
         Schema::create('user_reviews', function (Blueprint $table) {
             $table->id();
@@ -177,8 +180,12 @@ return new class extends Migration {
             $table->boolean('is_approved')->default(false);
 
             $table->timestamps();
+            $table->softDeletes();
 
-            $table->unique(['reviewer_id', 'escort_id'], 'reviews_reviewer_escort_unique');
+            $table->unique(
+                ['reviewer_id', 'escort_id', 'deleted_at'],
+                'reviews_reviewer_escort_unique'
+            );
             $table->index(['escort_id', 'is_approved'], 'reviews_escort_approved_idx');
         });
 
@@ -200,8 +207,12 @@ return new class extends Migration {
                 ->cascadeOnDelete();
 
             $table->timestamps();
+            $table->softDeletes();
 
-            $table->unique(['blocker_id', 'blocked_id'], 'blocks_pair_unique');
+            $table->unique(
+                ['blocker_id', 'blocked_id', 'deleted_at'],
+                'blocks_pair_unique'
+            );
             $table->index('blocked_id', 'blocks_blocked_idx');
         });
 
@@ -234,6 +245,7 @@ return new class extends Migration {
             ])->default('open');
 
             $table->timestamps();
+            $table->softDeletes();
 
             $table->index(['reported_id', 'status'], 'reports_reported_status_idx');
             $table->index('status', 'reports_status_idx');
@@ -250,6 +262,7 @@ return new class extends Migration {
             $table->string('email')->primary();
             $table->string('token');
             $table->timestamp('created_at')->nullable();
+            $table->softDeletes();
         });
 
         /*
@@ -271,6 +284,7 @@ return new class extends Migration {
             $table->text('user_agent')->nullable();
             $table->longText('payload');
             $table->integer('last_activity')->index();
+            $table->softDeletes();
         });
     }
 

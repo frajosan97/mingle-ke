@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Events;
 
 use App\Models\Message;
@@ -12,13 +13,18 @@ class MessageDelivered implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public function __construct(public Message $message, public int $userId)
-    {
+    public function __construct(
+        public Message $message,
+        public int $userId,
+    ) {
     }
 
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('conversation.' . $this->message->conversation_id)];
+        return [
+            new PrivateChannel('conversation.' . $this->message->conversation_id),
+            new PrivateChannel('user.' . $this->message->sender_id),
+        ];
     }
 
     public function broadcastAs(): string
@@ -29,7 +35,9 @@ class MessageDelivered implements ShouldBroadcast
     public function broadcastWith(): array
     {
         return [
-            'message_id' => $this->message->id,
+            'message_id' => (int) $this->message->id,
+            'conversation_id' => (int) $this->message->conversation_id, // <-- Added for sidebar
+            'sender_id' => (int) $this->message->sender_id,
             'user_id' => $this->userId,
             'delivered_at' => now()->toISOString(),
         ];
