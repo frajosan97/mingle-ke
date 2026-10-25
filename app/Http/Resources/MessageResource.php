@@ -5,7 +5,6 @@ namespace App\Http\Resources;
 use App\Models\Message;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Log;
 
 /**
  * @mixin Message
@@ -19,14 +18,10 @@ class MessageResource extends JsonResource
 
     public function toArray(Request $request): array
     {
-        $viewerId = $this->options['viewerId'] ?? null;
+        $viewerId = $this->options['viewerId'] ?? $request->user()?->id;
+        $viewerId = $this->options['viewerId'] ?? $request->user()?->id;
         $recipientId = $this->options['recipientId'] ?? null;
         $recipientDeliveredAt = $this->options['recipientDeliveredAt'] ?? null;
-
-        Log::info('check data', [
-            'recipientId' => $recipientId,
-            'recipientDeliveredAt' => $recipientDeliveredAt,
-        ]);
 
         $isMine = $viewerId !== null
             ? (int) $this->sender_id === (int) $viewerId
@@ -73,7 +68,7 @@ class MessageResource extends JsonResource
             'edited_at' => $this->edited_at?->toISOString(),
             'created_at' => $this->created_at?->toISOString(),
             'createdAt' => $this->created_at?->toISOString(),
-            'time' => $this->created_at?->format('H:i'),
+            'time' => $this->created_at?->format('h:i A'),
             'mine' => $isMine,
             'read' => $tickState === 'read',
             'delivered' => in_array($tickState, ['delivered', 'read'], true),

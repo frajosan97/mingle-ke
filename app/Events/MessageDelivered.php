@@ -36,7 +36,7 @@ class MessageDelivered implements ShouldBroadcast
     {
         return [
             'message_id' => (int) $this->message->id,
-            'conversation_id' => (int) $this->message->conversation_id, // <-- Added for sidebar
+            'conversation_id' => (int) $this->message->conversation_id,
             'sender_id' => (int) $this->message->sender_id,
             'user_id' => $this->userId,
             'delivered_at' => now()->toISOString(),

@@ -13,23 +13,28 @@ use Illuminate\Support\Collection;
 
 class ConversationBroadcastService
 {
-    public function broadcastNewMessage(Message $message, Conversation $conversation): void
-    {
+
+    public function broadcastNewMessage(
+        Message $message,
+        Conversation $conversation,
+    ): void {
         $participants = ConversationParticipant::query()
             ->where('conversation_id', $conversation->id)
             ->whereNull('deleted_at')
             ->get(['user_id']);
 
         foreach ($participants as $participant) {
-            if ((int) $participant->user_id === (int) $message->sender_id) {
-                continue; // <-- CRITICAL: Sender never gets their own MessageSent event
-            }
+            $userId = (int) $participant->user_id;
+            $isSender = $userId === (int) $message->sender_id;
 
-            broadcast(
-                new MessageSent($message, (int) $participant->user_id)
-            )->toOthers();
+            broadcast(new MessageSent(
+                message: $message,
+                recipientId: $userId,
+                includeConversationChannel: !$isSender,
+            ));
         }
     }
+
 
     /**
      * @param  Collection<int, mixed>|array<int, mixed>  $messageIds

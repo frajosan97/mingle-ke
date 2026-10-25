@@ -7,7 +7,6 @@ use App\Models\ConversationParticipant;
 use App\Models\Message;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Throwable;
 
 class MessageService
@@ -69,7 +68,6 @@ class MessageService
                     ->whereKey($conversation->getKey())
                     ->update([
                         'last_message_at' => $message->created_at,
-                        'last_message_preview' => Str::limit($preview, 250, ''),
                     ]);
 
                 ConversationParticipant::query()
@@ -89,14 +87,6 @@ class MessageService
         // preview value because we just wrote it.
         $conversation->forceFill([
             'last_message_at' => $message->created_at,
-            'last_message_preview' => mb_substr(
-                $message->body ?? $this->attachments->preview(
-                    $attachmentRows,
-                    $message->type,
-                ),
-                0,
-                250,
-            ),
         ]);
 
         $message->load(['sender:id,name', 'attachments']);
@@ -153,26 +143,8 @@ class MessageService
                 ->whereKey($conversationId)
                 ->update([
                     'last_message_at' => $previous?->created_at,
-                    'last_message_preview' => $previous
-                        ? Str::limit(
-                            $previous->body ?? match ($previous->type) {
-                                'image' => '[image]',
-                                'video' => '[video]',
-                                'audio' => '[audio]',
-                                'file' => '[file]',
-                                'mixed' => '[attachment]',
-                                default => '',
-                            },
-                            250,
-                            '',
-                        )
-                        : null,
                 ]);
 
-            // Decrement unread for any participant whose unread_count
-            // included this (now-deleted) message. Conservative: only
-            // decrement where the count is > 0, for recipients, for
-            // messages that were never read.
             ConversationParticipant::query()
                 ->where('conversation_id', $conversationId)
                 ->where('user_id', '!=', $message->sender_id)

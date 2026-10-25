@@ -8,8 +8,8 @@ use Illuminate\Support\Facades\Broadcast;
 | User Channels
 |--------------------------------------------------------------------------
 |
-| Used for real-time conversation list updates (MessageSent, MessageRead,
-| MessageDelivered are all broadcast to user.{id} for the sidebar).
+| Used for private sidebar events:
+| MessageSent, MessageRead, MessageDelivered, etc.
 |
 */
 
@@ -21,45 +21,68 @@ Broadcast::channel('user.{userId}', function ($user, $userId) {
 
 /*
 |--------------------------------------------------------------------------
-| Conversation Channels
+| Private Conversation Channel
 |--------------------------------------------------------------------------
 |
-| Active participants only. Soft-deleted participants ("left" the
-| conversation) must NOT receive message events.
+| Only active participants can receive conversation events.
 |
 */
 
-Broadcast::channel('conversation.{conversationId}', function ($user, $conversationId) {
-    return ConversationParticipant::query()
-        ->where('conversation_id', $conversationId)
-        ->where('user_id', $user->id)
-        ->whereNull('deleted_at')
-        ->exists();
-});
+Broadcast::channel(
+    'conversation.{conversationId}',
+    function ($user, $conversationId) {
+        if ($user === null || $user->trashed()) {
+            return false;
+        }
+
+        return ConversationParticipant::query()
+            ->where('conversation_id', $conversationId)
+            ->where('user_id', $user->id)
+            ->whereNull('deleted_at')
+            ->exists();
+    }
+);
 
 /*
 |--------------------------------------------------------------------------
-| Presence Conversation Channels
+| Conversation Presence Channel
 |--------------------------------------------------------------------------
 |
-| Same rule as the conversation channel: soft-deleted participants are
-| not present.
+| Only active participants may join and appear in presence membership.
 |
 */
 
-Broadcast::channel('presence-conversation.{conversationId}', function ($user, $conversationId) {
-    $isParticipant = ConversationParticipant::query()
-        ->where('conversation_id', $conversationId)
-        ->where('user_id', $user->id)
-        ->whereNull('deleted_at')
-        ->exists();
+Broadcast::channel(
+    'conversation-presence.{conversationId}',
+    function ($user, $conversationId) {
+        if ($user === null || $user->trashed()) {
+            return false;
+        }
 
-    if (!$isParticipant) {
+        $isParticipant = ConversationParticipant::query()
+            ->where('conversation_id', $conversationId)
+            ->where('user_id', $user->id)
+            ->whereNull('deleted_at')
+            ->exists();
+
+        if (!$isParticipant) {
+            return false;
+        }
+
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+        ];
+    }
+);
+
+Broadcast::channel('online-users', function ($user) {
+    if (!$user || $user->trashed()) {
         return false;
     }
 
     return [
-        'id' => $user->id,
+        'id' => (int) $user->id,
         'name' => $user->name,
     ];
 });

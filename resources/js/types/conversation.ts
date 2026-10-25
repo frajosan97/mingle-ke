@@ -1,6 +1,6 @@
 // resources/js/types/conversation.ts
 
-export type MessageStatus = "sent" | "delivered" | "read";
+export type MessageStatus = "pending" | "sent" | "delivered" | "read";
 
 /** Inbox row — mirrors App\Data\SharedConversationData. */
 export interface Conversation {
@@ -21,11 +21,9 @@ export interface Conversation {
 
 export type AttachmentKind = "image" | "video" | "audio" | "file";
 
-/** Mirrors App\Models\MessageAttachment as returned by MessageResource. */
 export interface MessageAttachment {
     id: number;
     type: AttachmentKind;
-    /** Computed by the `url` accessor; may be absent or empty if the file cannot be resolved. */
     url?: string;
     original_name: string | null;
     mime_type: string | null;
@@ -50,7 +48,6 @@ export interface ReplyPreview {
     messageId?: number;
 }
 
-/** Mirrors App\Models\Message as returned by MessageResource. */
 export interface ConversationMessage {
     id: number;
     conversation_id: number;
@@ -62,10 +59,10 @@ export interface ConversationMessage {
     edited_at?: string | null;
     created_at: string;
     time: string;
-    // Client-side computed — not from the API.
     mine?: boolean;
     read?: boolean;
     delivered?: boolean;
+    status: MessageStatus;
     deleted?: boolean;
     replyTo?: ReplyPreview;
 }

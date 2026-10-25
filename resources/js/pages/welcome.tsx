@@ -1,14 +1,14 @@
 // resources/js/pages/welcome.tsx
 import { Head, usePage } from "@inertiajs/react";
-import Header from "@/components/landing/header";
-import Hero from "@/components/landing/hero";
-import Stats from "@/components/landing/stats";
-import Features from "@/components/landing/features";
-import Testimonials from "@/components/landing/testimonials";
-import CTA from "@/components/landing/cta";
-import Footer from "@/components/landing/footer";
+import Header from "@/components/welcome/header";
+import Hero from "@/components/welcome/hero";
+import Stats from "@/components/welcome/stats";
+import Features from "@/components/welcome/features";
+import Testimonials from "@/components/welcome/testimonials";
+import CTA from "@/components/welcome/cta";
+import Footer from "@/components/welcome/footer";
 import EscortsListing from "@/components/discover/escorts-listing";
-import { PREMIUM, REGULAR } from "@/components/landing/data";
+import { PREMIUM, REGULAR } from "@/components/welcome/data";
 
 export default function Welcome() {
     const { auth } = usePage().props;

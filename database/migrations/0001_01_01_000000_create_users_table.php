@@ -64,6 +64,9 @@ return new class extends Migration {
             // --- Trust & activity ---
             $table->boolean('is_verified')->default(false);
             $table->timestamp('last_active_at')->nullable();
+            
+            $table->boolean('is_online')->default(false);
+            $table->timestamp('last_seen_at')->nullable();
 
             $table->rememberToken();
             $table->timestamps();
@@ -74,9 +77,6 @@ return new class extends Migration {
             $table->index(['subscription_plan', 'subscription_expires_at'], 'users_sub_plan_expires_idx');
             $table->index(['lat', 'lng'], 'users_location_idx');
             $table->index('last_active_at', 'users_last_active_idx');
-            // NOTE: users_provider_idx was indexing provider_name / provider_id,
-            // but neither column exists on this table. Removed to avoid a
-            // "Unknown column" error at migrate time.
         });
 
         /*

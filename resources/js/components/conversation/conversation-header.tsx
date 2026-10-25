@@ -1,4 +1,3 @@
-// resources/js/components/conversation/conversation-header.tsx
 import { Link } from "@inertiajs/react";
 import {
     ArrowLeft,
@@ -15,7 +14,6 @@ interface Props {
     online?: boolean;
     typingUser?: string | null;
     verified?: boolean;
-    /** Raw ISO timestamp or already-formatted string from the backend. */
     lastSeen?: string | null;
 }
 
@@ -23,11 +21,12 @@ function formatLastSeen(lastSeen?: string | null): string | null {
     if (!lastSeen) return null;
 
     const date = new Date(lastSeen);
+
     if (Number.isNaN(date.getTime())) {
         return lastSeen;
     }
 
-    const diffMs = Date.now() - date.getTime();
+    const diffMs = Math.max(0, Date.now() - date.getTime());
     const diffMin = Math.floor(diffMs / 60_000);
 
     if (diffMin < 1) return "last seen just now";
@@ -59,7 +58,7 @@ export default function ConversationHeader({
 
     return (
         <header className="flex h-[60px] shrink-0 items-center justify-between px-4">
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
                 <Link
                     href="/conversations"
                     className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
@@ -80,18 +79,28 @@ export default function ConversationHeader({
                             name.charAt(0).toUpperCase()
                         )}
                     </div>
+
                     {online && !typingUser && (
-                        <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card bg-brand-green" />
+                        <span
+                            aria-label="Online"
+                            title="Online"
+                            className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card bg-brand-green"
+                        />
                     )}
                 </div>
 
                 <div className="min-w-0">
                     <h2 className="flex items-center gap-1 text-sm font-semibold text-foreground">
                         <span className="truncate">{name}</span>
+
                         {verified && (
-                            <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-brand-pink" />
+                            <BadgeCheck
+                                aria-label="Verified"
+                                className="h-3.5 w-3.5 shrink-0 text-brand-pink"
+                            />
                         )}
                     </h2>
+
                     <p
                         className={cn(
                             "truncate text-xs",
@@ -107,7 +116,7 @@ export default function ConversationHeader({
                 </div>
             </div>
 
-            <div className="flex items-center gap-1 text-muted-foreground">
+            <div className="flex shrink-0 items-center gap-1 text-muted-foreground">
                 {[
                     { title: "Video call", Icon: Video },
                     { title: "Voice call", Icon: Phone },
@@ -117,6 +126,7 @@ export default function ConversationHeader({
                         key={title}
                         type="button"
                         title={title}
+                        aria-label={title}
                         className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-accent hover:text-foreground"
                     >
                         <Icon className="h-5 w-5" />

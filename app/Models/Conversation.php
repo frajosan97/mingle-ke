@@ -15,7 +15,6 @@ use Illuminate\Support\Carbon;
  * @property int $user_one_id
  * @property int $user_two_id
  * @property Carbon|null $last_message_at
- * @property string|null $last_message_preview
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
@@ -30,7 +29,6 @@ use Illuminate\Support\Carbon;
     'user_one_id',
     'user_two_id',
     'last_message_at',
-    'last_message_preview',
 ])]
 class Conversation extends Model
 {
@@ -153,10 +151,5 @@ class Conversation extends Model
             $q->where('user_one_id', $userId)
                 ->orWhere('user_two_id', $userId);
         });
-    }
-
-    public function scopeOrderedByActivity($query)
-    {
-        return $query->orderByDesc('last_message_at');
     }
 }

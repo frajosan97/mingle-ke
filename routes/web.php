@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ConversationController;
+use App\Http\Controllers\DeviceStatusController;
 use App\Http\Controllers\DiscoverController;
 use App\Http\Controllers\MessageController;
 use Illuminate\Support\Facades\Route;
@@ -102,6 +103,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     */
     Route::post('/discover/{user}/like', [DiscoverController::class, 'like'])
         ->name('discover.like');
+
+    Route::post('/device-status', [DeviceStatusController::class, 'update'])
+        ->middleware(['throttle:60,1'])
+        ->name('device-status.update');
 });
 
 Route::post('/push-subscriptions', function (Request $request) {
@@ -121,6 +126,34 @@ Route::post('/push-subscriptions', function (Request $request) {
         'message' => 'Push subscription saved.',
     ]);
 })->name('push-subscriptions.store');
+
+Route::get('/api/stickers', function () {
+    return response()->json(
+        cache()->remember('stickers.list', now()->addMinutes(10), function () {
+            $base = public_path('stickers');
+            $list = function (string $sub) use ($base): array {
+                $dir = $base . DIRECTORY_SEPARATOR . $sub;
+                if (!File::isDirectory($dir))
+                    return [];
+                return collect(File::files($dir))
+                    ->filter(fn($f) => in_array(
+                        strtolower($f->getExtension()),
+                        ['gif', 'webp', 'png', 'jpg', 'jpeg', 'svg']
+                    ))
+                    ->map(fn($f) => [
+                        'name' => $f->getFilename(),
+                        'url' => asset("stickers/{$sub}/" . $f->getFilename()),
+                        'size' => $f->getSize(),
+                        'mtime' => $f->getMTime(),
+                    ])
+                    ->sortByDesc('mtime')
+                    ->values()
+                    ->all();
+            };
+            return ['gifs' => $list('gifs'), 'stickers' => $list('stickers')];
+        })
+    );
+})->name('stickers.index');
 
 /*
 |--------------------------------------------------------------------------

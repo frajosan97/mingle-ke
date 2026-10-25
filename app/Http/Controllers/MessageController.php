@@ -25,17 +25,28 @@ class MessageController extends Controller
     {
         $this->authorize('participate', $conversation);
 
+        $userId = (int) $request->user()->id;
+
         // MessageService::send() owns the MessageSent broadcast — do not
         // broadcast again here or the sender/receiver see two events.
         $message = $this->messages->send(
             conversation: $conversation,
-            senderId: (int) $request->user()->id,
+            senderId: $userId,
             body: $request->validated('body'),
             files: $request->classifiedFiles(),
         );
 
+        // Recipient participant — supplies recipientId and the preloaded
+        // delivery watermark so the resource needs no per-message query.
+        $recipientParticipant = $conversation->participants()
+            ->where('user_id', '!=', $userId)
+            ->whereNull('deleted_at')
+            ->first();
+
         return (new MessageResource($message, [
-            'viewerId' => (int) $request->user()->id,
+            'viewerId' => $userId,
+            'recipientId' => $recipientParticipant?->user_id,
+            'recipientDeliveredAt' => $recipientParticipant?->last_delivered_at,
         ]))->response()->setStatusCode(201);
     }
 
@@ -102,19 +113,30 @@ class MessageController extends Controller
             ->where('conversation_id', $conversation->id)
             ->where('sender_id', '!=', $userId);
 
+        // Watermark is a low-water-mark: only consider messages newer than
+        // what this user has already acked. Captured BEFORE advancing it.
         if ($participant->last_delivered_at !== null) {
             $query->where('created_at', '>', $participant->last_delivered_at);
         }
 
-        $deliveredIds = $query->orderBy('created_at')->orderBy('id')->pluck('id');
+        $delivered = $query->orderBy('created_at')->orderBy('id')->get();
 
-        if ($deliveredIds->isEmpty()) {
+        if ($delivered->isEmpty()) {
             return response()->json(['ok' => true, 'changed' => false]);
         }
 
-        $participant->markDelivered();
+        // Advance to the ACKED MESSAGE'S timestamp — NOT now(). now() would
+        // mark messages sent between the last ack and this request as
+        // delivered even though the client never received them.
+        $participant->update([
+            'last_delivered_at' => $delivered->last()->created_at,
+        ]);
 
-        $this->broadcaster->broadcastDeliveredMany($conversation, $userId, $deliveredIds);
+        $this->broadcaster->broadcastDeliveredMany(
+            $conversation,
+            $userId,
+            $delivered->pluck('id'),
+        );
 
         return response()->json(['ok' => true, 'changed' => true]);
     }

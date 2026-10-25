@@ -161,7 +161,6 @@ class DiscoverController extends Controller
                     'user_one_id' => min($me->id, $user->id),
                     'user_two_id' => max($me->id, $user->id),
                     'last_message_at' => now(),
-                    'last_message_preview' => null,
                 ]);
 
                 ConversationParticipant::insert([

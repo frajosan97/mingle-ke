@@ -17,15 +17,23 @@ class MessageSent implements ShouldBroadcast
     public function __construct(
         public Message $message,
         public int $recipientId,
+        public bool $includeConversationChannel = true,
     ) {
     }
 
     public function broadcastOn(): array
     {
-        return [
-            new PrivateChannel('conversation.' . $this->message->conversation_id),
-            new PrivateChannel('user.' . $this->recipientId),
-        ];
+        $channels = [];
+
+        if ($this->includeConversationChannel) {
+            $channels[] = new PrivateChannel(
+                'conversation.' . $this->message->conversation_id
+            );
+        }
+
+        $channels[] = new PrivateChannel('user.' . $this->recipientId);
+
+        return $channels;
     }
 
     public function broadcastAs(): string
@@ -35,7 +43,10 @@ class MessageSent implements ShouldBroadcast
 
     public function broadcastWith(): array
     {
-        $message = $this->message->loadMissing(['sender:id,name', 'attachments']);
+        $message = $this->message->loadMissing([
+            'sender:id,name',
+            'attachments',
+        ]);
 
         return [
             'message' => (new MessageResource($message, [

@@ -1,119 +1,131 @@
-// resources/js/hooks/conversations/use-presence-channel.ts
-import { useEffect, useRef, useState } from "react";
-import { useEchoPresence } from "@laravel/echo-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { echo } from "@laravel/echo-react";
 
 export interface PresenceUser {
     id: number | string;
     name: string;
 }
 
+type PresenceChannelInstance = ReturnType<
+    ReturnType<typeof echo>["join"]
+>;
+
 export function usePresenceChannel(conversationId: string) {
     const [typingUser, setTypingUser] = useState<string | null>(null);
     const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
     const [isSubscribed, setIsSubscribed] = useState(false);
+
+    const channelRef = useRef<PresenceChannelInstance | null>(null);
     const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const { channel } = useEchoPresence(`conversation.${conversationId}`);
-
-    // Poll until the channel exists, then assume it's subscribed.
-    // Echo's types don't expose a reliable `subscribed()` / `bind()` on the
-    // presence channel union, so we use a loose cast and a short delay.
     useEffect(() => {
+        if (!conversationId) {
+            channelRef.current = null;
+            setOnlineUsers([]);
+            setTypingUser(null);
+            setIsSubscribed(false);
+            return;
+        }
+
+        let active = true;
+        const channelName = `conversation-presence.${conversationId}`;
+        const client = echo();
+
+        setOnlineUsers([]);
+        setTypingUser(null);
         setIsSubscribed(false);
 
-        let cancelled = false;
-        let attempts = 0;
-
-        const trySubscribe = () => {
-            if (cancelled) return;
-
-            const ch = channel();
-            if (!ch) {
-                if (attempts++ < 40) {
-                    setTimeout(trySubscribe, 250);
-                }
-                return;
-            }
-
-            // Cast to a permissive shape so TS doesn't complain about
-            // `subscribed` not existing on every union member.
-            const loose = ch as unknown as {
-                subscribed?: () => boolean;
-            };
-
-            if (typeof loose.subscribed === "function" && loose.subscribed()) {
-                setIsSubscribed(true);
-                return;
-            }
-
-            // Give the socket a moment to finish the handshake, then mark
-            // as subscribed so listeners attach.
-            setTimeout(() => {
-                if (!cancelled) setIsSubscribed(true);
-            }, 300);
-        };
-
-        trySubscribe();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [channel, conversationId]);
-
-    useEffect(() => {
-        if (!isSubscribed) return;
-
-        const ch = channel();
-        if (!ch) return;
+        const channel = client.join(channelName);
+        channelRef.current = channel;
 
         const handleHere = (users: PresenceUser[]) => {
+            if (!active) return;
+
             setOnlineUsers(Array.isArray(users) ? users : []);
+            setIsSubscribed(true);
         };
 
         const handleJoining = (user: PresenceUser) => {
-            setOnlineUsers((prev) => {
-                const exists = prev.some(
-                    (u) => String(u.id) === String(user.id),
-                );
-                return exists ? prev : [...prev, user];
+            if (!active || user?.id == null) return;
+
+            setOnlineUsers((previous) => {
+                if (
+                    previous.some(
+                        (item) => String(item.id) === String(user.id),
+                    )
+                ) {
+                    return previous;
+                }
+
+                return [...previous, user];
             });
         };
 
         const handleLeaving = (user: PresenceUser) => {
-            setOnlineUsers((prev) =>
-                prev.filter((u) => String(u.id) !== String(user.id)),
+            if (!active || user?.id == null) return;
+
+            setOnlineUsers((previous) =>
+                previous.filter(
+                    (item) => String(item.id) !== String(user.id),
+                ),
             );
         };
 
-        const handleWhisper = (event: { name: string }) => {
-            if (!event?.name) return;
+        const handleWhisper = (event: { name?: string }) => {
+            if (!active || !event?.name) return;
+
             setTypingUser(event.name);
 
-            if (typingTimer.current) clearTimeout(typingTimer.current);
+            if (typingTimer.current) {
+                clearTimeout(typingTimer.current);
+            }
 
             typingTimer.current = setTimeout(() => {
-                setTypingUser(null);
+                if (active) {
+                    setTypingUser(null);
+                }
+
                 typingTimer.current = null;
             }, 1800);
         };
 
-        ch.here(handleHere);
-        ch.joining(handleJoining);
-        ch.leaving(handleLeaving);
-        ch.listenForWhisper("typing", handleWhisper);
+        channel.here(handleHere);
+        channel.joining(handleJoining);
+        channel.leaving(handleLeaving);
+        channel.listenForWhisper("typing", handleWhisper);
+
+        channel.error((error: unknown) => {
+            console.error(
+                "[Conversation presence] Subscription error:",
+                error,
+            );
+        });
 
         return () => {
+            active = false;
+
             if (typingTimer.current) {
                 clearTimeout(typingTimer.current);
                 typingTimer.current = null;
             }
-            try {
-                ch.stopListeningForWhisper("typing", handleWhisper);
-            } catch {
-                // Channel may already be disconnected.
-            }
-        };
-    }, [channel, conversationId, isSubscribed]);
 
-    return { channel, onlineUsers, typingUser, isSubscribed };
+            if (channelRef.current === channel) {
+                channelRef.current = null;
+            }
+
+            setIsSubscribed(false);
+            client.leave(channelName);
+        };
+    }, [conversationId]);
+
+    const getChannel = useCallback(() => {
+        return channelRef.current;
+    }, []);
+
+    return {
+        channel: getChannel,
+        onlineUsers,
+        typingUser,
+        isSubscribed,
+    };
 }

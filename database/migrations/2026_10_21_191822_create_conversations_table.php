@@ -23,15 +23,13 @@ return new class extends Migration {
                 ->constrained('users')
                 ->cascadeOnDelete();
 
-            // Denormalised for fast inbox listing
+            // last message_at
             $table->timestamp('last_message_at')->nullable();
-            $table->string('last_message_preview', 255)->nullable();
 
             $table->timestamps();
             $table->softDeletes();
 
             $table->unique(['user_one_id', 'user_two_id'], 'conversations_pair_unique');
-            $table->index('last_message_at', 'conversations_last_msg_idx');
             $table->index('user_two_id', 'conversations_user_two_idx');
         });
 
@@ -52,8 +50,8 @@ return new class extends Migration {
                 ->cascadeOnDelete();
 
             $table->unsignedInteger('unread_count')->default(0);
-            $table->timestamp('last_read_at')->nullable();
             $table->timestamp('last_delivered_at')->nullable();
+            $table->timestamp('last_read_at')->nullable();
 
             $table->boolean('is_muted')->default(false);
             $table->boolean('is_archived')->default(false);
@@ -82,12 +80,8 @@ return new class extends Migration {
                 ->cascadeOnDelete();
 
             $table->string('type')->default('text');
-
             $table->text('body')->nullable();
-
-            // Coins spent to send this message (null if free)
             $table->unsignedInteger('coins_spent')->nullable();
-
             $table->timestamp('edited_at')->nullable();
 
             $table->timestamps();

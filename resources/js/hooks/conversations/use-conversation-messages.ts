@@ -1,7 +1,8 @@
 // resources/js/hooks/conversations/use-conversation-messages.ts
 
 import { useCallback, useEffect, useState } from "react";
-import type { ConversationMessage } from "@/types";
+import type { ConversationMessage, MessageStatus } from "@/types";
+import { formatChatTime } from "@/lib/conversation/time";
 
 type MessageLike = Partial<ConversationMessage> & {
     id: number | string;
@@ -9,9 +10,33 @@ type MessageLike = Partial<ConversationMessage> & {
     createdAt?: string | null;
 };
 
+const STATUS_RANK: Record<MessageStatus, number> = {
+    pending: 0,
+    sent: 1,
+    delivered: 2,
+    read: 3,
+};
+
+function maxStatus(
+    a: MessageStatus | undefined,
+    b: MessageStatus | undefined,
+): MessageStatus {
+    const x = a ?? "sent";
+    const y = b ?? "sent";
+    return STATUS_RANK[x] >= STATUS_RANK[y] ? x : y;
+}
+
+function deriveStatus(raw: MessageLike): MessageStatus {
+    if (raw.status) return raw.status;
+    if (raw.read) return "read";
+    if (raw.delivered) return "delivered";
+    return "sent";
+}
+
 function normalizeMessage(raw: MessageLike): ConversationMessage {
     const createdAt = raw.created_at ?? raw.createdAt ?? "";
     const body = raw.body ?? raw.content ?? null;
+    const status = deriveStatus(raw);
 
     return {
         ...raw,
@@ -23,17 +48,11 @@ function normalizeMessage(raw: MessageLike): ConversationMessage {
         body,
         attachments: raw.attachments ?? [],
         created_at: createdAt,
-        time:
-            raw.time ??
-            (createdAt
-                ? new Date(createdAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                })
-                : ""),
+        time: formatChatTime(createdAt),
         mine: raw.mine ?? false,
-        read: raw.read ?? false,
-        delivered: raw.delivered ?? false,
+        status,
+        read: raw.read ?? status === "read",
+        delivered: raw.delivered ?? (status === "delivered" || status === "read"),
         deleted: raw.deleted ?? false,
     } as ConversationMessage;
 }
@@ -47,27 +66,25 @@ export function useConversationMessages(initialMessages: ConversationMessage[]) 
         initialMessages.map((m) => normalizeMessage(m as MessageLike)),
     );
 
-    // Sync from server props (Initial load or Inertia reload)
-    // Guarantees we never downgrade a status if a websocket event arrived first
     useEffect(() => {
         setMessages((previous) => {
             const incoming = initialMessages.map((m) =>
                 normalizeMessage(m as MessageLike),
             );
-
-            const incomingById = new Map(
-                incoming.map((m) => [String(m.id), m]),
-            );
+            const incomingById = new Map(incoming.map((m) => [String(m.id), m]));
 
             const merged = previous.map((existing) => {
                 const server = incomingById.get(String(existing.id));
                 if (!server) return existing;
 
+                const status = maxStatus(existing.status, server.status);
+
                 return {
                     ...server,
                     mine: existing.mine || server.mine,
-                    read: existing.read || server.read,
-                    delivered: existing.delivered || server.delivered,
+                    status,
+                    read: status === "read",
+                    delivered: status === "delivered" || status === "read",
                 };
             });
 
@@ -76,13 +93,11 @@ export function useConversationMessages(initialMessages: ConversationMessage[]) 
                 (m) => Number(m.id) < 0 && !incomingIds.has(String(m.id)),
             );
 
-            const sorted = [...merged, ...optimistic].sort(
+            return [...merged, ...optimistic].sort(
                 (a, b) =>
                     new Date(a.created_at || 0).getTime() -
                     new Date(b.created_at || 0).getTime(),
             );
-
-            return sorted;
         });
     }, [initialMessages]);
 
@@ -101,6 +116,10 @@ export function useConversationMessages(initialMessages: ConversationMessage[]) 
     const confirmOptimistic = useCallback(
         (tempId: ConversationMessage["id"], serverMessage: MessageLike) => {
             const normalized = normalizeMessage(serverMessage);
+            // Server messages are never "pending".
+            const confirmedStatus: MessageStatus =
+                normalized.status === "pending" ? "sent" : normalized.status;
+
             setMessages((previous) => {
                 const serverExists = previous.some(
                     (m) => sameId(m.id, normalized.id) && !sameId(m.id, tempId),
@@ -114,6 +133,11 @@ export function useConversationMessages(initialMessages: ConversationMessage[]) 
                             ...m,
                             ...normalized,
                             mine: true,
+                            status: confirmedStatus,
+                            read: confirmedStatus === "read",
+                            delivered:
+                                confirmedStatus === "delivered" ||
+                                confirmedStatus === "read",
                             body: normalized.body ?? m.body ?? null,
                             attachments: normalized.attachments?.length
                                 ? normalized.attachments
@@ -133,6 +157,8 @@ export function useConversationMessages(initialMessages: ConversationMessage[]) 
             if (index === -1) return [...previous, normalized];
 
             const existing = previous[index];
+            const status = maxStatus(existing.status, normalized.status);
+
             const merged: ConversationMessage = {
                 ...existing,
                 ...normalized,
@@ -140,10 +166,10 @@ export function useConversationMessages(initialMessages: ConversationMessage[]) 
                 attachments: normalized.attachments?.length
                     ? normalized.attachments
                     : existing.attachments ?? [],
-                // Monotonic: never downgrade.
                 mine: existing.mine || normalized.mine,
-                read: existing.read || normalized.read,
-                delivered: existing.delivered || normalized.delivered,
+                status,
+                read: status === "read",
+                delivered: status === "delivered" || status === "read",
                 deleted: existing.deleted || normalized.deleted,
             };
 
@@ -151,24 +177,29 @@ export function useConversationMessages(initialMessages: ConversationMessage[]) 
         });
     }, []);
 
-    // STRICT: only update status for messages we sent (!mine check)
     const markDelivered = useCallback((messageId: string | number) => {
         setMessages((previous) =>
             previous.map((m) => {
                 if (sameId(m.id, messageId) && m.mine) {
-                    return { ...m, delivered: true };
+                    const status = maxStatus(m.status, "delivered");
+                    return {
+                        ...m,
+                        status,
+                        delivered: status === "delivered" || status === "read",
+                        read: status === "read",
+                    };
                 }
                 return m;
             }),
         );
     }, []);
 
-    // STRICT: only update status for messages we sent (!mine check)
     const markRead = useCallback((messageId: string | number) => {
         setMessages((previous) =>
             previous.map((m) => {
                 if (sameId(m.id, messageId) && m.mine) {
-                    return { ...m, delivered: true, read: true };
+                    const status = maxStatus(m.status, "read");
+                    return { ...m, status, delivered: true, read: true };
                 }
                 return m;
             }),

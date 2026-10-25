@@ -1,153 +1,224 @@
-// resources/js/hooks/conversations/use-conversation-realtime.ts
 
-import { useCallback, useRef } from "react";
-import axios from "axios";
-import { useEcho } from "@laravel/echo-react";
+import { useEffect, useRef } from "react";
+import { echo } from "@laravel/echo-react";
+
 import type { ConversationMessage } from "@/types";
 
-interface BroadcastMessage {
-    id: number | string;
-    conversation_id?: number | string;
-    sender_id?: number | string;
-    sender_name?: string;
-    body?: string | null;
-    content?: string | null;
-    type?: ConversationMessage["type"];
-    time?: string;
-    created_at?: string;
-    createdAt?: string;
-    attachments?: ConversationMessage["attachments"];
-    read?: boolean;
-    delivered?: boolean;
-    deleted?: boolean;
-    mine?: boolean;
-}
-
 interface MessageSentEvent {
-    message?: BroadcastMessage;
+    message?: ConversationMessage;
+    id?: number;
+    sender_id?: number | string;
 }
 
-interface StatusEvent {
+interface MessageStatusEvent {
     message_id?: number | string;
     sender_id?: number | string;
     user_id?: number | string;
 }
 
-interface Handlers {
+interface MessageDeletedEvent {
+    message_id?: number | string;
+}
+
+interface RealtimeHandlers {
     onReceived: (message: ConversationMessage) => void;
-    onRead: (messageId: string | number) => void;
-    onDelivered: (messageId: string | number) => void;
-    onDeleted: (messageId: string | number) => void;
+    onDelivered: (messageId: number) => void;
+    onRead: (messageId: number) => void;
+    onDeleted: (messageId: number) => void;
+}
+
+type EventPayload = Record<string, unknown>;
+
+function asRecord(value: unknown): EventPayload {
+    if (value !== null && typeof value === "object") {
+        return value as EventPayload;
+    }
+
+    return {};
+}
+
+function getMessageId(
+    value: number | string | undefined | null,
+): number | null {
+    if (value === undefined || value === null || value === "") {
+        return null;
+    }
+
+    const id = Number(value);
+
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function sameUser(
+    first: number | string | null | undefined,
+    second: number | string | null | undefined,
+): boolean {
+    return (
+        first !== null &&
+        first !== undefined &&
+        second !== null &&
+        second !== undefined &&
+        String(first) === String(second)
+    );
 }
 
 export function useConversationRealtime(
-    conversationId: string,
+    conversationId: string | number,
     myUserId: number | null,
-    { onReceived, onRead, onDelivered, onDeleted }: Handlers,
+    handlers: RealtimeHandlers,
 ) {
-    const deliveryRequestInProgress = useRef(false);
-    const deliveryRequestPending = useRef(false);
+    const handlersRef = useRef(handlers);
 
-    const acknowledgeDelivery = useCallback(async () => {
-        if (deliveryRequestInProgress.current) {
-            deliveryRequestPending.current = true;
+    useEffect(() => {
+        handlersRef.current = handlers;
+    }, [handlers]);
+
+    useEffect(() => {
+        if (String(conversationId).trim() === "") {
             return;
         }
-        deliveryRequestInProgress.current = true;
-        try {
-            do {
-                deliveryRequestPending.current = false;
-                await axios.post(`/conversations/${conversationId}/delivered`);
-            } while (deliveryRequestPending.current);
-        } catch (error) {
-            console.error("Failed to acknowledge delivery:", error);
-        } finally {
-            deliveryRequestInProgress.current = false;
-        }
-    }, [conversationId]);
 
-    const onMessageSent = useCallback(
-        (event: MessageSentEvent) => {
-            const message = event?.message;
-            if (message?.id == null) return;
+        const channelName = `conversation.${conversationId}`;
+        const client = echo();
+        const channel = client.private(channelName);
 
-            const senderId =
-                message.sender_id == null ? null : Number(message.sender_id);
+        const handleMessageSent = (payload: MessageSentEvent) => {
+            const event = asRecord(payload);
+            const message = asRecord(event.message ?? payload);
 
-            const isMine =
-                senderId !== null &&
-                myUserId !== null &&
-                senderId === myUserId;
+            const messageId = getMessageId(
+                message.id as number | string | undefined,
+            );
 
-            const createdAt = message.created_at ?? message.createdAt ?? "";
-            const body = message.body ?? message.content ?? null;
+            if (messageId === null) return;
 
-            onReceived({
+            const senderId = message.sender_id as
+                | number
+                | string
+                | undefined;
+
+            const isMine = sameUser(senderId, myUserId);
+
+            const normalizedMessage = {
                 ...message,
-                id: message.id,
-                conversation_id: Number(message.conversation_id ?? conversationId),
-                sender_id: senderId ?? 0,
-                sender_name: message.sender_name ?? "Unknown",
-                body,
-                type: message.type ?? (body ? "text" : "file"),
-                attachments: message.attachments ?? [],
-                time:
-                    message.time ??
-                    (createdAt
-                        ? new Date(createdAt).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                        })
-                        : ""),
-                created_at: createdAt,
+                id: messageId,
                 mine: isMine,
-                read: false,
-                delivered: isMine,
-                deleted: false,
-            } as ConversationMessage);
+                ...(isMine
+                    ? {}
+                    : {
+                        read: false,
+                        delivered: false,
+                    }),
+            } as unknown as ConversationMessage;
+
+            handlersRef.current.onReceived(normalizedMessage);
 
             if (!isMine) {
-                void acknowledgeDelivery();
+                const csrfToken = document.querySelector<HTMLMetaElement>(
+                    'meta[name="csrf-token"]',
+                )?.content;
+
+                void fetch(`/conversations/${conversationId}/delivered`, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: {
+                        Accept: "application/json",
+                        "Content-Type": "application/json",
+                        "X-Requested-With": "XMLHttpRequest",
+                        ...(csrfToken
+                            ? { "X-CSRF-TOKEN": csrfToken }
+                            : {}),
+                    },
+                    body: JSON.stringify({
+                        message_id: messageId,
+                    }),
+                })
+                    .then((response) => {
+                        if (!response.ok) {
+                            console.error(
+                                "Failed to acknowledge message delivery:",
+                                response.status,
+                            );
+                        }
+                    })
+                    .catch((error: unknown) => {
+                        console.error(
+                            "Message delivery acknowledgement failed:",
+                            error,
+                        );
+                    });
             }
-        },
-        [conversationId, myUserId, onReceived, acknowledgeDelivery],
-    );
+        };
 
-    const onMessageDelivered = useCallback(
-        (event: StatusEvent) => {
-            if (event?.message_id == null || myUserId == null) return;
-            // The event must originate from a message WE sent
-            if (Number(event.sender_id) !== myUserId) return;
-            // Ignore our own receipts
-            if (Number(event.user_id) === myUserId) return;
+        const handleMessageDelivered = (payload: MessageStatusEvent) => {
+            const event = asRecord(payload);
 
-            onDelivered(event.message_id);
-        },
-        [myUserId, onDelivered],
-    );
+            if (
+                !sameUser(
+                    event.sender_id as number | string | undefined,
+                    myUserId,
+                )
+            ) {
+                return;
+            }
 
-    const onMessageRead = useCallback(
-        (event: StatusEvent) => {
-            if (event?.message_id == null || myUserId == null) return;
-            // The event must originate from a message WE sent
-            if (Number(event.sender_id) !== myUserId) return;
-            // Ignore our own receipts
-            if (Number(event.user_id) === myUserId) return;
+            const messageId = getMessageId(
+                event.message_id as number | string | undefined,
+            );
 
-            onRead(event.message_id);
-        },
-        [myUserId, onRead],
-    );
+            if (messageId !== null) {
+                handlersRef.current.onDelivered(messageId);
+            }
+        };
 
-    const onMessageDeleted = useCallback(
-        (event: StatusEvent) => {
-            if (event?.message_id != null) onDeleted(event.message_id);
-        },
-        [onDeleted],
-    );
+        const handleMessageRead = (payload: MessageStatusEvent) => {
+            const event = asRecord(payload);
 
-    useEcho(`conversation.${conversationId}`, ".MessageSent", onMessageSent);
-    useEcho(`conversation.${conversationId}`, ".MessageDelivered", onMessageDelivered);
-    useEcho(`conversation.${conversationId}`, ".MessageRead", onMessageRead);
-    useEcho(`conversation.${conversationId}`, ".MessageDeleted", onMessageDeleted);
+            if (
+                !sameUser(
+                    event.sender_id as number | string | undefined,
+                    myUserId,
+                )
+            ) {
+                return;
+            }
+
+            const messageId = getMessageId(
+                event.message_id as number | string | undefined,
+            );
+
+            if (messageId !== null) {
+                handlersRef.current.onRead(messageId);
+            }
+        };
+
+        const handleMessageDeleted = (payload: MessageDeletedEvent) => {
+            const event = asRecord(payload);
+
+            const messageId = getMessageId(
+                event.message_id as number | string | undefined,
+            );
+
+            if (messageId !== null) {
+                handlersRef.current.onDeleted(messageId);
+            }
+        };
+
+        channel.listen(".MessageSent", handleMessageSent);
+        channel.listen(".MessageDelivered", handleMessageDelivered);
+        channel.listen(".MessageRead", handleMessageRead);
+        channel.listen(".MessageDeleted", handleMessageDeleted);
+
+        return () => {
+            channel.stopListening(".MessageSent", handleMessageSent);
+            channel.stopListening(
+                ".MessageDelivered",
+                handleMessageDelivered,
+            );
+            channel.stopListening(".MessageRead", handleMessageRead);
+            channel.stopListening(".MessageDeleted", handleMessageDeleted);
+
+            client.leave(channelName);
+        };
+    }, [conversationId, myUserId]);
 }

@@ -44,16 +44,19 @@ class ConversationResource extends JsonResource
             return $base;
         }
 
-        // Additional information for conversation list
-        return $base + [
-            'lastMessageId' => $lastMessage?->id,
-            'lastMessage' => $lastMessage->body,
-            'lastMessageAt' => $lastMessage->created_at?->toISOString(),
-            'lastMessageSenderId' => $lastMessage?->sender_id,
-            'lastMessageStatus' => $this->status($lastMessage, $viewer, $otherParticipant),
-            'time' => $lastMessage->created_at?->diffForHumans(short: true) ?? '',
-            'unread' => (int) ($participant->unread_count ?? 0),
-        ];
+        if ($lastMessage) {
+            $buildLastMessage = [
+                'lastMessageId' => $lastMessage?->id ?? null,
+                'lastMessage' => $lastMessage->body ?? '',
+                'lastMessageAt' => $lastMessage->created_at?->toISOString() ?? null,
+                'lastMessageSenderId' => $lastMessage?->sender_id,
+                'lastMessageStatus' => $this->status($lastMessage, $viewer, $otherParticipant),
+                'time' => $lastMessage->created_at?->diffForHumans(short: true) ?? '',
+                'unread' => (int) ($participant->unread_count ?? 0),
+            ];
+        }
+
+        return array_merge($base, $buildLastMessage ?? []);
     }
 
     public function toBroadcastPayload(): array

@@ -153,7 +153,7 @@ class Message extends Model
         }
 
         // Use the preloaded watermark when available (avoids N+1 in show()/index()).
-        $deliveredAt = $recipientDeliveredAt ?? ConversationParticipant::query()
+        $deliveredAt = ConversationParticipant::query()
             ->where('conversation_id', $this->conversation_id)
             ->where('user_id', $recipientId)
             ->whereNull('deleted_at')
@@ -168,6 +168,9 @@ class Message extends Model
             return 'sent';
         }
 
-        return $deliveredAt >= $this->created_at ? 'delivered' : 'sent';
+        // return $deliveredAt >= $this->created_at ? 'delivered' : 'sent';
+        return $deliveredAt > $this->created_at
+            ? 'delivered'
+            : 'sent';
     }
 }

@@ -23,7 +23,7 @@ class MessageRead implements ShouldBroadcast
     {
         return [
             new PrivateChannel('conversation.' . $this->message->conversation_id),
-            new PrivateChannel('user.' . $this->message->sender_id), // <-- Added for sidebar
+            new PrivateChannel('user.' . $this->message->sender_id),
         ];
     }
 
@@ -36,7 +36,7 @@ class MessageRead implements ShouldBroadcast
     {
         return [
             'message_id' => (int) $this->message->id,
-            'conversation_id' => (int) $this->message->conversation_id, // <-- Added for sidebar
+            'conversation_id' => (int) $this->message->conversation_id,
             'sender_id' => (int) $this->message->sender_id,
             'user_id' => $this->userId,
             'read_at' => now()->toISOString(),
