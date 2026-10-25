@@ -3,6 +3,7 @@
 import { useCallback, useRef } from "react";
 import axios from "axios";
 import type { ConversationMessage, MessageType } from "@/types";
+import type { AttachmentCategory } from "@/types/message-input";
 import { formatChatTimeFromDate } from "@/lib/conversation/time";
 
 interface Options {
@@ -37,13 +38,22 @@ export function useSendMessage({
     const nextTempId = () => --tempIdRef.current;
 
     return useCallback(
-        async (text: string, files: File[] = []) => {
+        async (
+            text: string,
+            files: File[] = [],
+            categories: AttachmentCategory[] = [],
+        ) => {
             const content = text.trim();
             if (!content && files.length === 0) return;
 
             const form = new FormData();
             if (content) form.append("body", content);
-            files.forEach((file) => form.append("attachments[]", file));
+            files.forEach((file, i) => {
+                form.append("attachments[]", file);
+                if (categories[i]) {
+                    form.append(`categories[${i}]`, categories[i]);
+                }
+            });
 
             const tempId = nextTempId();
             const now = new Date();
@@ -77,8 +87,14 @@ export function useSendMessage({
                 }
 
                 confirmOptimistic(tempId, serverMessage);
-            } catch {
+                return serverMessage;
+            } catch (err) {
+                // Roll back the optimistic message, then rethrow so the
+                // caller (`MessageInput.safeSend` → `onError`) can see it.
+                // Without this `throw`, the 402 is swallowed and the
+                // top-up modal never opens.
                 removeById(tempId);
+                throw err;
             }
         },
         [conversationId, appendOptimistic, removeById, confirmOptimistic],

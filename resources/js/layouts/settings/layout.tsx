@@ -1,7 +1,14 @@
 // resources/js/layouts/settings/layout.tsx
 import { Link, usePage } from "@inertiajs/react";
-import { type PropsWithChildren, useState } from "react";
-import { Search, User, Key, MessageSquare, LogOut } from "lucide-react";
+import { type PropsWithChildren, useEffect, useState } from "react";
+import {
+    Search,
+    User,
+    Key,
+    MessageSquare,
+    LogOut,
+    ChevronLeft,
+} from "lucide-react";
 import { useCurrentUrl } from "@/hooks/use-current-url";
 import { cn } from "@/lib/utils";
 import { edit as editAppearance } from "@/routes/appearance";
@@ -40,12 +47,30 @@ interface AuthUser {
 
 export default function SettingsLayout({ children }: PropsWithChildren) {
     const { isCurrentOrParentUrl } = useCurrentUrl();
-    const { props } = usePage();
+    const { props, url } = usePage();
     const { auth } = props as {
         auth: { user: AuthUser | null };
     };
 
     const [search, setSearch] = useState("");
+
+    // ── Mobile view state ────────────────────────────────────────
+    // "menu"  → show the sidebar menu
+    // "form"  → show the selected settings form
+    // On desktop this is irrelevant (both are shown side-by-side).
+    const isOnSubPage = sidebarNavItems.some((item) =>
+        isCurrentOrParentUrl(item.href),
+    );
+    const [mobileView, setMobileView] = useState<"menu" | "form">(
+        isOnSubPage ? "form" : "menu",
+    );
+
+    // Keep mobile view in sync when the URL changes (e.g. direct link,
+    // browser back/forward). If we land on a sub-page, show form; if we
+    // land on the settings index, show menu.
+    useEffect(() => {
+        setMobileView(isOnSubPage ? "form" : "menu");
+    }, [url, isOnSubPage]);
 
     const filteredMenu = sidebarNavItems.filter(
         (item) =>
@@ -59,7 +84,13 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
     return (
         <div className="flex h-full w-full flex-col md:flex-row">
             {/* ── Left Side: Settings Navigation ────────────────────────── */}
-            <aside className="flex w-full shrink-0 flex-col border-r border-border bg-card/30 md:w-[380px] lg:w-[420px]">
+            <aside
+                className={cn(
+                    "w-full shrink-0 flex-col border-r border-border bg-card/30 md:flex md:w-[380px] lg:w-[420px]",
+                    // On mobile: show menu only when mobileView === "menu"
+                    mobileView === "menu" ? "flex" : "hidden",
+                )}
+            >
                 {/* Fixed Header & Search */}
                 <div className="shrink-0 p-5 pb-2">
                     <h1 className="mb-5 text-2xl font-bold tracking-tight text-foreground">
@@ -80,7 +111,6 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
 
                 {/* Scrollable Menu Area */}
                 <div className="flex flex-1 flex-col overflow-y-auto scrollbar-thin px-3 pb-4">
-                    {/* Profile Avatar */}
                     <div className="group relative mx-auto mb-8 mt-4 flex w-32 cursor-pointer flex-col items-center justify-center">
                         <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-4 border-background bg-gradient-brand shadow-xl ring-1 ring-border/50 transition-transform hover:scale-105">
                             {avatarUrl ? (
@@ -97,7 +127,6 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
                         </div>
                     </div>
 
-                    {/* Navigation Items */}
                     <nav
                         className="flex flex-col gap-1.5"
                         aria-label="Settings"
@@ -110,6 +139,7 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
                                 <Link
                                     key={item.id}
                                     href={item.href}
+                                    onClick={() => setMobileView("form")}
                                     className={cn(
                                         "group flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left transition-all",
                                         isActive
@@ -157,7 +187,6 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
                     </nav>
                 </div>
 
-                {/* Fixed Bottom: Logout */}
                 <div className="shrink-0 border-t border-border/50 p-3">
                     <Link
                         href="/logout"
@@ -172,8 +201,24 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
             </aside>
 
             {/* ── Right Side: Settings Forms ────────────────────────────── */}
-            <div className="flex flex-1 overflow-y-auto scrollbar-thin bg-background">
+            <div
+                className={cn(
+                    "flex-1 overflow-y-auto scrollbar-thin bg-background md:block",
+                    // On mobile: show form only when mobileView === "form"
+                    mobileView === "form" ? "block" : "hidden",
+                )}
+            >
                 <div className="mx-auto w-full max-w-2xl p-6 md:p-10">
+                    {/* Mobile back button — toggles state, does NOT navigate */}
+                    <button
+                        type="button"
+                        onClick={() => setMobileView("menu")}
+                        className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground md:hidden"
+                    >
+                        <ChevronLeft className="h-4 w-4" />
+                        Back to settings
+                    </button>
+
                     {children}
                 </div>
             </div>

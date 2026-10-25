@@ -1,14 +1,19 @@
-import { useCallback } from "react";
+// resources/js/pages/conversations/show.tsx
+import { useCallback, useState } from "react";
 import { Head } from "@inertiajs/react";
 import type { ConversationMessage } from "@/types";
+import type { AttachmentCategory } from "@/types/message-input";
 import { useAppOnlineStatus } from "@/hooks/use-app-online-status";
 import { useConversationMessages } from "@/hooks/conversations/use-conversation-messages";
 import { usePresenceChannel } from "@/hooks/conversations/use-presence-channel";
 import { useConversationRealtime } from "@/hooks/conversations/use-conversation-realtime";
 import { useSendMessage } from "@/hooks/conversations/use-send-message";
 import { useMarkMessagesRead } from "@/hooks/conversations/use-mark-messages";
+import { useCoins } from "@/contexts/coins-context";
 import ConversationHeader from "@/components/conversation/conversation-header";
-import MessageInput from "@/components/conversation/message-input";
+import MessageInput, {
+    type SendError,
+} from "@/components/conversation/message-input";
 import MessageList from "@/components/conversation/message-list";
 
 interface Props {
@@ -43,7 +48,6 @@ export default function ConversationShow({
         markDeleted,
     } = useConversationMessages(initialMessages);
 
-    // Global online status comes from AppLayout.
     const { isUserOnline, getLastSeen } = useAppOnlineStatus();
 
     const isOnline =
@@ -55,7 +59,6 @@ export default function ConversationShow({
         ? null
         : (getLastSeen(otherUserId) ?? otherLastSeen ?? null);
 
-    // Realtime message events only.
     useConversationRealtime(id, myUserId, {
         onReceived: upsertReceived,
         onDelivered: markDelivered,
@@ -72,11 +75,55 @@ export default function ConversationShow({
         confirmOptimistic,
     });
 
+    const { promptTopUp } = useCoins();
+
+    /**
+     * Cheap local guard against double-submit. Even without coins this
+     * is worth having — with coins it prevents a double charge.
+     */
+    const [sending, setSending] = useState(false);
+
     const handleSend = useCallback(
-        (text: string, files: File[] = []) => {
-            return sendMessage(text, files);
+        async (
+            text: string,
+            files: File[] = [],
+            categories: AttachmentCategory[] = [],
+        ) => {
+            if (sending) return;
+            setSending(true);
+            try {
+                await sendMessage(text, files, categories);
+            } finally {
+                setSending(false);
+            }
         },
-        [sendMessage],
+        [sendMessage, sending],
+    );
+
+    /**
+     * Central 402 handler. `sendMessage` (via axios) throws on error;
+     * if the status is 402 + INSUFFICIENT_COINS we open the modal;
+     * anything else we surface in console so it isn't silent.
+     */
+    const handleSendError = useCallback(
+        (error: SendError) => {
+            if (
+                error.status === 402 &&
+                error.code === "INSUFFICIENT_COINS" &&
+                typeof error.required === "number" &&
+                typeof error.available === "number"
+            ) {
+                promptTopUp({
+                    required: error.required,
+                    available: error.available,
+                });
+                return;
+            }
+            // Non-coin failures: log so nothing is silently swallowed.
+            // Swap for your toast system when one exists.
+            console.error("Message send failed:", error);
+        },
+        [promptTopUp],
     );
 
     useMarkMessagesRead(id);
@@ -119,7 +166,12 @@ export default function ConversationShow({
                 </div>
 
                 <div className="relative z-10 shrink-0 border-t border-border/60 bg-card/70 backdrop-blur-md">
-                    <MessageInput onSend={handleSend} onTyping={handleTyping} />
+                    <MessageInput
+                        onSend={handleSend}
+                        onError={handleSendError}
+                        onTyping={handleTyping}
+                        disabled={sending}
+                    />
                 </div>
             </div>
         </>

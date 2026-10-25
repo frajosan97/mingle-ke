@@ -54,16 +54,29 @@ export default function DiscoverIndex({ profiles, filters, error }: Props) {
 
     return (
         <>
-            <Head title="Discover" />
+            <Head title="Discover · Find people nearby" />
 
-            <div className="relative min-h-screen bg-background pb-12">
+            <div className="relative h-full bg-background">
                 {/* Ambient brand glow */}
                 <div className="pointer-events-none absolute inset-0 overflow-hidden">
                     <div className="orb orb-pink absolute -left-20 top-1/4 h-72 w-72 opacity-10" />
                     <div className="orb orb-orange absolute -right-20 bottom-1/4 h-64 w-64 opacity-10" />
                 </div>
 
-                <div className="relative z-10 mx-auto max-w-7xl px-4 pt-6 lg:px-8">
+                <div className="relative z-10 mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+                    {/* ── Header ──────────────────────────────── */}
+                    <header className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                                Discover
+                            </h1>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                                Browse profiles near you — filter by distance,
+                                gender and availability to find your match.
+                            </p>
+                        </div>
+                    </header>
+
                     {/* Filter bar */}
                     <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-border/60 bg-card/60 p-3 backdrop-blur-md">
                         <span className="flex items-center gap-1.5 rounded-full bg-gradient-brand-soft px-3 py-1.5 text-xs font-semibold text-brand-pink">
@@ -103,7 +116,7 @@ export default function DiscoverIndex({ profiles, filters, error }: Props) {
                             <option value="other">Other</option>
                         </select>
 
-                        <label className="flex items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-1.5 text-xs text-foreground transition hover:bg-accent cursor-pointer">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-1.5 text-xs text-foreground transition hover:bg-accent">
                             <input
                                 type="checkbox"
                                 checked={filters.available_only ?? false}
@@ -127,6 +140,8 @@ export default function DiscoverIndex({ profiles, filters, error }: Props) {
                             <ProfileCard key={profile.id} profile={profile} />
                         ))}
                     </div>
+
+                    <div className="pb-6" />
                 </div>
             </div>
         </>

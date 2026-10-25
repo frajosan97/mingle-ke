@@ -9,12 +9,26 @@ import EmojiPickerButton from "./emoji-picker-button";
 import RecordingBar from "./recording-bar";
 import ComposerTextarea from "./composer-textarea";
 
+/** Shape the parent should throw / pass into `onError`. */
+export interface SendError {
+    status: number;
+    code?: string;
+    required?: number;
+    available?: number;
+    message?: string;
+}
+
 interface Props {
     onSend: (
         text: string,
         files?: File[],
         categories?: AttachmentCategory[],
-    ) => void;
+    ) => void | Promise<void>;
+    /**
+     * Called if `onSend` throws (or returns a rejected promise).
+     * The conversation page uses this to open the top-up modal on 402.
+     */
+    onError?: (error: SendError) => void;
     onTyping?: () => void;
     disabled?: boolean;
     autoFocus?: boolean;
@@ -23,6 +37,7 @@ interface Props {
 
 export default function MessageInput({
     onSend,
+    onError,
     onTyping,
     disabled = false,
     autoFocus = true,
@@ -34,10 +49,15 @@ export default function MessageInput({
     const textInputRef = useRef<HTMLTextAreaElement>(null);
     const lastTypingRef = useRef(0);
     const onSendRef = useRef(onSend);
+    const onErrorRef = useRef(onError);
 
     useEffect(() => {
         onSendRef.current = onSend;
     }, [onSend]);
+
+    useEffect(() => {
+        onErrorRef.current = onError;
+    }, [onError]);
 
     const focusInput = useCallback(() => {
         requestAnimationFrame(() => {
@@ -69,6 +89,44 @@ export default function MessageInput({
     const clearPreviews = useCallback(
         (items: PendingFile[]) => items.forEach((i) => revokeUrl(i.url)),
         [revokeUrl],
+    );
+
+    /**
+     * Wraps a send attempt so failures route through `onError` instead
+     * of being swallowed. The composer has already reset itself by the
+     * time this runs, so callers must own retry semantics.
+     */
+    const safeSend = useCallback(
+        async (
+            text: string,
+            files: File[],
+            categories: AttachmentCategory[],
+        ) => {
+            try {
+                await onSendRef.current(
+                    text,
+                    files.length ? files : undefined,
+                    categories.length ? categories : undefined,
+                );
+            } catch (err) {
+                const e = err as Partial<SendError> & {
+                    response?: {
+                        status?: number;
+                        data?: Partial<SendError>;
+                    };
+                };
+                const status = e.status ?? e.response?.status ?? 0;
+                const data = e.response?.data ?? (e as Partial<SendError>);
+                onErrorRef.current?.({
+                    status,
+                    code: data?.code,
+                    required: data?.required,
+                    available: data?.available,
+                    message: data?.message ?? "Could not send message.",
+                });
+            }
+        },
+        [],
     );
 
     // ---------------------------------------------------------------
@@ -141,8 +199,8 @@ export default function MessageInput({
         const attachments = files.map((p) => p.file);
         const categories = files.map((p) => p.category);
         resetComposer();
-        onSendRef.current(message, attachments, categories);
-    }, [disabled, text, files, resetComposer]);
+        void safeSend(message, attachments, categories);
+    }, [disabled, text, files, resetComposer, safeSend]);
 
     // ---------------------------------------------------------------
     // Audio recorder
@@ -150,7 +208,7 @@ export default function MessageInput({
     const recorder = useAudioRecorder({
         disabled,
         onComplete: (file) => {
-            onSendRef.current("", [file], ["audio"]);
+            void safeSend("", [file], ["audio"]);
             focusInput();
         },
     });
@@ -196,13 +254,13 @@ export default function MessageInput({
                 const file = new File([blob], `${safeName}.${ext}`, {
                     type: mime,
                 });
-                onSendRef.current("", [file], ["image"]);
+                await safeSend("", [file], ["image"]);
                 focusInput();
             } catch (err) {
                 console.error("Could not load GIF/sticker:", err);
             }
         },
-        [focusInput],
+        [focusInput, safeSend],
     );
 
     const handleEscape = useCallback(() => {

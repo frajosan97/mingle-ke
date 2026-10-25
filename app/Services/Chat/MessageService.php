@@ -2,9 +2,11 @@
 
 namespace App\Services\Chat;
 
+use App\Exceptions\InsufficientCoinsException;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\Message;
+use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -36,6 +38,22 @@ class MessageService
             );
         }
 
+        $sender = User::findOrFail($senderId);
+
+        // --- Pricing ------------------------------------------------
+        // Escorts send free; everyone else pays based on length.
+        $cost = $sender->isEscort()
+            ? 0
+            : MessagePricing::costFor($body, $files !== []);
+
+        // Fail fast BEFORE writing any files to disk if the user
+        // obviously cannot afford this message. The real, race-safe
+        // check still happens inside the transaction below.
+        if ($cost > 0 && $sender->coins < $cost) {
+            throw new InsufficientCoinsException($cost, $sender->coins);
+        }
+        // ------------------------------------------------------------
+
         $attachmentRows = $this->attachments->store(
             (int) $conversation->id,
             $files,
@@ -43,7 +61,24 @@ class MessageService
 
         try {
             /** @var Message $message */
-            $message = DB::transaction(function () use ($conversation, $senderId, $body, $attachmentRows): Message {
+            $message = DB::transaction(function () use ($conversation, $senderId, $body, $attachmentRows, $cost, ): Message {
+                // Atomic, race-safe deduction. The WHERE clause means
+                // two concurrent sends can't both succeed if only one
+                // balance is sufficient. Escorts ($cost === 0) skip it.
+                if ($cost > 0) {
+                    $affected = User::query()
+                        ->whereKey($senderId)
+                        ->where('coins', '>=', $cost)
+                        ->decrement('coins', $cost);
+
+                    if ($affected === 0) {
+                        throw new InsufficientCoinsException(
+                            $cost,
+                            (int) User::whereKey($senderId)->value('coins'),
+                        );
+                    }
+                }
+
                 $type = $this->attachments->determineMessageType(
                     $attachmentRows,
                     filled($body),
@@ -79,6 +114,8 @@ class MessageService
                 return $message;
             });
         } catch (Throwable $e) {
+            // If we stored files but the transaction rolled back
+            // (including the coin deduction rollback), clean them up.
             $this->attachments->deleteStored($attachmentRows);
             throw $e;
         }
@@ -116,6 +153,9 @@ class MessageService
     /**
      * Soft-delete a message and repair the denormalised sidebar state
      * (last preview, unread counters) plus broadcast once.
+     *
+     * Note: coins are NOT refunded on delete — otherwise a user could
+     * send a long message, delete it, and repeat for free.
      */
     public function delete(Message $message): void
     {
