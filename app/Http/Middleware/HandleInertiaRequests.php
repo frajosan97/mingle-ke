@@ -36,6 +36,11 @@ class HandleInertiaRequests extends Middleware
             'conversations' => fn() => $request->user()
                 ? $this->conversations->forUser($request->user())
                 : [],
+            'flash' => [
+                'success' => fn() => $request->session()->get('success'),
+                'error' => fn() => $request->session()->get('error'),
+            ],
+            'checkout_request_id' => fn() => $request->session()->get('checkout_request_id'),
         ];
     }
 }

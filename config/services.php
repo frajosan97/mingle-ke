@@ -41,4 +41,25 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI', '/social-accounts/login/google/callback'),
     ],
 
+    'sms' => [
+        'base_url' => env('SMS_BASE_URL', 'https://sms.frajosantech.co.ke'),
+        'api_key' => env('SMS_API_KEY'),
+        'sender_id' => env('SMS_SENDER_ID'),
+        'partner_id' => env('SMS_PARTNER_ID'),
+    ],
+
+    'mpesa' => [
+        'env' => env('MPESA_ENV', 'sandbox'),
+        'shortcode' => env('MPESA_SHORTCODE'),
+        'passkey' => env('MPESA_PASSKEY'),
+        'consumer_key' => env('MPESA_CONSUMER_KEY'),
+        'consumer_secret' => env('MPESA_CONSUMER_SECRET'),
+        'initiator_name' => env('MPESA_INITIATOR_NAME'),
+        'initiator_password' => env('MPESA_INITIATOR_PASSWORD'),
+        'b2c_shortcode' => env('MPESA_B2C_SHORTCODE'),
+        'callback_url' => env('MPESA_CALLBACK_URL'),
+        'result_url' => env('MPESA_RESULT_URL'),
+        'queue_timeout_url' => env('MPESA_TIMEOUT_URL'),
+    ],
+
 ];

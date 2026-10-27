@@ -12,7 +12,7 @@ return new class extends Migration {
         | users
         |------------------------------------------------------------------
         | The account. Every human on the platform has exactly one row.
-        | Holds: auth, identity, social profile, subscription, wallet.
+        | Holds: auth, identity, social profile, subscription, wallet, location.
         | Does NOT hold: escort listing data (see user_profiles).
         */
         Schema::create('users', function (Blueprint $table) {
@@ -25,23 +25,14 @@ return new class extends Migration {
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password')->nullable();
 
-            // --- Social profile (visible to everyone) ---
-            $table->string('phone', 20)->nullable();   // private until unlocked
+            // Social profile (visible to everyone)
+            $table->string('phone', 20)->nullable();
             $table->unsignedTinyInteger('age')->nullable();
-            $table->enum('gender', [
-                'male',
-                'female',
-                'other'
-            ])->nullable();
+            $table->enum('gender', ['male', 'female', 'other'])->nullable();
             $table->text('bio')->nullable();
 
-            // --- Subscription / monetization ---
-            $table->enum('tier', [
-                'regular',
-                'premium'
-            ])->default('regular');
-
-            // Facebook-style billing cycles
+            // Subscription / monetization
+            $table->enum('tier', ['regular', 'premium'])->default('regular');
             $table->enum('subscription_plan', [
                 'daily',
                 'weekly',
@@ -52,19 +43,25 @@ return new class extends Migration {
             $table->timestamp('subscription_expires_at')->nullable();
             $table->boolean('auto_renew')->default(false);
 
-            // WARNING: mutable balance. Introduce a coin_transactions
-            // ledger before handling real money.
+            // Wallet (coin_transactions ledger is the source of truth)
             $table->unsignedInteger('coins')->default(0);
 
-            // --- Location (used for "near me" search) ---
+            // Location (used for "near me" search)
             $table->decimal('lat', 10, 7)->nullable();
             $table->decimal('lng', 10, 7)->nullable();
-            $table->string('area', 100)->nullable();
+            $table->foreignId('county_id')
+                ->nullable()
+                ->constrained('counties')
+                ->nullOnDelete();
+            $table->foreignId('town_id')
+                ->nullable()
+                ->constrained('towns')
+                ->nullOnDelete();
+            $table->string('area', 100)->nullable(); // display fallback
 
-            // --- Trust & activity ---
+            // Trust & activity
             $table->boolean('is_verified')->default(false);
             $table->timestamp('last_active_at')->nullable();
-            
             $table->boolean('is_online')->default(false);
             $table->timestamp('last_seen_at')->nullable();
 
@@ -72,11 +69,13 @@ return new class extends Migration {
             $table->timestamps();
             $table->softDeletes();
 
-            // --- Indexes ---
+            // Indexes
             $table->index(['tier', 'subscription_expires_at'], 'users_tier_sub_expires_idx');
             $table->index(['subscription_plan', 'subscription_expires_at'], 'users_sub_plan_expires_idx');
             $table->index(['lat', 'lng'], 'users_location_idx');
             $table->index('last_active_at', 'users_last_active_idx');
+            $table->index('county_id', 'users_county_idx');
+            $table->index('town_id', 'users_town_idx');
         });
 
         /*
@@ -85,17 +84,16 @@ return new class extends Migration {
         |------------------------------------------------------------------
         | OPTIONAL. One row = this user is listed as an ESCORT.
         | If a user is only here for social/dating, they have NO row here.
-        | All escort-only fields live here so `users` stays clean.
         */
         Schema::create('user_profiles', function (Blueprint $table) {
             $table->id();
 
             $table->foreignId('user_id')
-                ->unique()                       // 1:1
+                ->unique()
                 ->constrained('users')
                 ->cascadeOnDelete();
 
-            // --- Escort attributes ---
+            // Escort attributes
             $table->enum('orientation', [
                 'straight',
                 'gay',
@@ -113,14 +111,14 @@ return new class extends Migration {
             $table->boolean('smoking')->default(false);
             $table->boolean('drinking')->default(false);
 
-            // --- Rates (minor units, e.g. cents) ---
+            // Rates (minor units, e.g. cents)
             $table->unsignedInteger('rate_15min')->nullable();
             $table->unsignedInteger('rate_30min')->nullable();
             $table->unsignedInteger('rate_1hour')->nullable();
             $table->unsignedInteger('rate_night')->nullable();
-            $table->string('currency', 3)->default('USD');
+            $table->string('currency', 3)->default('KES');
 
-            // --- Availability ---
+            // Availability
             $table->boolean('is_available')->default(true);
             $table->enum('availability_status', [
                 'online',
@@ -132,16 +130,16 @@ return new class extends Migration {
             $table->boolean('incall')->default(false);
             $table->boolean('outcall')->default(false);
 
-            // --- Media (listing-specific) ---
+            // Media
             $table->string('cover_image')->nullable();
             $table->json('gallery')->nullable();
 
-            // --- Moderation ---
+            // Moderation
             $table->boolean('is_approved')->default(false);
             $table->timestamp('approved_at')->nullable();
             $table->boolean('is_featured')->default(false);
 
-            // --- Stats ---
+            // Stats
             $table->unsignedInteger('profile_views')->default(0);
             $table->unsignedInteger('rating_count')->default(0);
             $table->decimal('rating_avg', 3, 2)->default(0);
@@ -149,7 +147,7 @@ return new class extends Migration {
             $table->timestamps();
             $table->softDeletes();
 
-            // --- Indexes ---
+            // Indexes
             $table->index(['is_approved', 'is_available'], 'profiles_approved_available_idx');
             $table->index('availability_status', 'profiles_avail_status_idx');
             $table->index('is_featured', 'profiles_featured_idx');
@@ -159,10 +157,6 @@ return new class extends Migration {
         |------------------------------------------------------------------
         | user_reviews
         |------------------------------------------------------------------
-        | A user leaves a rating + review about an escort.
-        | Uniqueness: one ACTIVE review per (reviewer, escort) pair.
-        | Including deleted_at in the unique index lets a user re-post a
-        | review after their previous one was (soft) removed.
         */
         Schema::create('user_reviews', function (Blueprint $table) {
             $table->id();
@@ -170,12 +164,11 @@ return new class extends Migration {
             $table->foreignId('reviewer_id')
                 ->constrained('users')
                 ->cascadeOnDelete();
-
             $table->foreignId('escort_id')
                 ->constrained('users')
                 ->cascadeOnDelete();
 
-            $table->unsignedTinyInteger('rating');    // 1–5
+            $table->unsignedTinyInteger('rating');
             $table->text('body')->nullable();
             $table->boolean('is_approved')->default(false);
 
@@ -193,7 +186,6 @@ return new class extends Migration {
         |------------------------------------------------------------------
         | user_blocks
         |------------------------------------------------------------------
-        | One row per (blocker → blocked) relationship.
         */
         Schema::create('user_blocks', function (Blueprint $table) {
             $table->id();
@@ -201,7 +193,6 @@ return new class extends Migration {
             $table->foreignId('blocker_id')
                 ->constrained('users')
                 ->cascadeOnDelete();
-
             $table->foreignId('blocked_id')
                 ->constrained('users')
                 ->cascadeOnDelete();
@@ -220,9 +211,6 @@ return new class extends Migration {
         |------------------------------------------------------------------
         | user_reports
         |------------------------------------------------------------------
-        | A user reports another user (abuse, spam, etc.).
-        | No unique constraint — a user may report the same person
-        | multiple times over time with different reasons.
         */
         Schema::create('user_reports', function (Blueprint $table) {
             $table->id();
@@ -230,7 +218,6 @@ return new class extends Migration {
             $table->foreignId('reporter_id')
                 ->constrained('users')
                 ->cascadeOnDelete();
-
             $table->foreignId('reported_id')
                 ->constrained('users')
                 ->cascadeOnDelete();
@@ -255,8 +242,6 @@ return new class extends Migration {
         |------------------------------------------------------------------
         | password_reset_tokens
         |------------------------------------------------------------------
-        | Keyed by email, not user_id, because a user might request a
-        | reset before ever verifying / while their account is soft-locked.
         */
         Schema::create('password_reset_tokens', function (Blueprint $table) {
             $table->string('email')->primary();
@@ -269,8 +254,6 @@ return new class extends Migration {
         |------------------------------------------------------------------
         | sessions
         |------------------------------------------------------------------
-        | Framework-managed. user_id nulls on delete so sessions for
-        | deleted users clean up without nuking the row mid-request.
         */
         Schema::create('sessions', function (Blueprint $table) {
             $table->string('id')->primary();

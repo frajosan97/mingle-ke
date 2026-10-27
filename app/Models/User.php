@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
@@ -21,6 +22,7 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Fortify\Contracts\PasskeyUser;
 use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
+use Laravel\Sanctum\HasApiTokens;
 use NotificationChannels\WebPush\HasPushSubscriptions;
 
 /**
@@ -67,6 +69,10 @@ use NotificationChannels\WebPush\HasPushSubscriptions;
  * @property-read \Illuminate\Database\Eloquent\Collection<int, Message> $messages
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MessageAttachment> $messageAttachments
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MessageRead> $messageReads
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, CoinTransaction> $coinTransactions
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, CoinTransaction> $coinPurchases
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, CoinTransaction> $completedCoinPurchases
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, CoinTransaction> $pendingCoinPurchases
  */
 #[Fillable([
     'name',
@@ -93,7 +99,7 @@ use NotificationChannels\WebPush\HasPushSubscriptions;
 class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
+    use HasApiTokens, HasFactory, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
     use HasSocialAccounts;
     use HasPushSubscriptions;
     use SoftDeletes;
@@ -171,6 +177,16 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     // ==================================================================
     // RELATIONSHIPS
     // ==================================================================
+
+    public function county(): BelongsTo
+    {
+        return $this->belongsTo(County::class);
+    }
+
+    public function town(): BelongsTo
+    {
+        return $this->belongsTo(Town::class);
+    }
 
     /** 1:1 — optional escort listing. Null if user is only social/dating. */
     public function profile(): HasOne
@@ -270,6 +286,36 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         );
     }
 
+    /** Every coin ledger entry for this user (purchases, bonuses, spends, refunds). */
+    public function coinTransactions(): HasMany
+    {
+        return $this->hasMany(CoinTransaction::class);
+    }
+
+    /** Only purchase rows — useful for summaries and history filters. */
+    public function coinPurchases(): HasMany
+    {
+        return $this->hasMany(CoinTransaction::class)
+            ->where('type', CoinTransaction::TYPE_PURCHASE);
+    }
+
+    /** Completed purchases only — the ones that actually moved coins. */
+    public function completedCoinPurchases(): HasMany
+    {
+        return $this->coinPurchases()
+            ->where('status', CoinTransaction::STATUS_COMPLETED);
+    }
+
+    /** Pending/processing purchases — used to prevent duplicate STK pushes. */
+    public function pendingCoinPurchases(): HasMany
+    {
+        return $this->coinPurchases()
+            ->whereIn('status', [
+                CoinTransaction::STATUS_PENDING,
+                CoinTransaction::STATUS_PROCESSING,
+            ]);
+    }
+
     // ==================================================================
     // HELPERS / SCOPES
     // ==================================================================
@@ -295,6 +341,24 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function isBlockedBy(User $other): bool
     {
         return $this->blockedBy()->whereKey($other->id)->exists();
+    }
+
+    /** Whether any coin payment is currently in flight (STK or C2B). */
+    public function hasPendingCoinPurchase(): bool
+    {
+        return $this->pendingCoinPurchases()->exists();
+    }
+
+    /** Total KES this user has spent on coins (completed purchases only). */
+    public function totalSpentOnCoins(): int
+    {
+        return (int) $this->completedCoinPurchases()->sum('amount_kes');
+    }
+
+    /** Total coins this user has bought (completed purchases only). */
+    public function totalCoinsPurchased(): int
+    {
+        return (int) $this->completedCoinPurchases()->sum('coins');
     }
 
     public function scopeActive($query)

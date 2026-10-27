@@ -1,9 +1,13 @@
-// resources/js/components/landing/stats.tsx
+// resources/js/components/welcome/stats.tsx
 import { motion } from "framer-motion";
+import type { StatItem } from "./data";
 import { fadeUp, stagger } from "./motion";
-import { STATS } from "./data";
 
-export default function Stats() {
+interface Props {
+    items: StatItem[];
+}
+
+export default function Stats({ items }: Props) {
     return (
         <section className="container-page py-16">
             <motion.div
@@ -13,7 +17,7 @@ export default function Stats() {
                 viewport={{ once: true, margin: "-80px" }}
                 className="grid grid-cols-2 gap-8 sm:grid-cols-4"
             >
-                {STATS.map((s) => (
+                {items.map((s) => (
                     <motion.div
                         key={s.label}
                         variants={fadeUp}

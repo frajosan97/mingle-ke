@@ -34,7 +34,7 @@ class ConversationResource extends JsonResource
         $base = [
             'id' => (int) $conversation->id,
             'name' => $otherUser?->name ?? 'Unknown',
-            'avatarUrl' => $this->avatarUrl($otherUser?->avatar),
+            'avatarUrl' => $otherUser->avatar_url ? $this->avatarUrl($otherUser->avatar_url) : null,
             'online' => $this->isOnline($otherUser),
             'verified' => (bool) ($otherUser?->is_verified ?? false),
             'otherUserId' => $otherUser?->id,

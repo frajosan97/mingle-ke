@@ -4,6 +4,7 @@ use App\Http\Controllers\CoinController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DeviceStatusController;
 use App\Http\Controllers\DiscoverController;
+use App\Http\Controllers\HomeController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\Settings\ProfileController;
 use Illuminate\Support\Facades\Route;
@@ -17,7 +18,7 @@ use Illuminate\Http\Request;
 | Routes accessible without authentication.
 |
 */
-Route::inertia('/', 'welcome')->name('home');
+Route::get('/', HomeController::class)->name('home');
 
 /*
 |--------------------------------------------------------------------------
@@ -106,19 +107,74 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/discover/{user}/like', [DiscoverController::class, 'like'])
         ->name('discover.like');
 
+    /*
+    |--------------------------------------------------------------------------
+    | Coins
+    |--------------------------------------------------------------------------
+    |
+    | Buy and sell coins.
+    |
+    */
     Route::get('/coins', [CoinController::class, 'index'])
         ->name('coins');
+    Route::post('/coins/purchase', [CoinController::class, 'purchase'])
+        ->name('coins.purchase');
+    Route::get('/coins/status/{checkoutRequestId}', [CoinController::class, 'status'])
+        ->name('coins.status');
+    Route::get('/coins/history', [CoinController::class, 'history'])
+        ->name('coins.history');
+    Route::post('/coins/retry/{tx}', [CoinController::class, 'retry'])
+        ->name('coins.retry');
 
+    /*
+    |--------------------------------------------------------------------------
+    | Device Status
+    |--------------------------------------------------------------------------
+    |
+    | Update the authenticated user's device status.
+    |
+    */
+    Route::get('/device-status', [DeviceStatusController::class, 'index'])
+        ->name('device-status.index');
     Route::post('/device-status', [DeviceStatusController::class, 'update'])
         ->middleware(['throttle:60,1'])
         ->name('device-status.update');
 
+    /*
+    |--------------------------------------------------------------------------
+    | Profile
+    |--------------------------------------------------------------------------
+    |
+    | Update the authenticated user's profile.
+    |
+    */
+    // Route::get('/profile', [ProfileController::class, 'index'])
+    //     ->name('profile.index');
+    // Route::post('/profile', [ProfileController::class, 'update'])
+    //     ->name('profile.update');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Escort Onboarding
+    |--------------------------------------------------------------------------
+    |
+    | Escort onboarding.
+    |
+    */
     Route::get('escort/onboarding', [ProfileController::class, 'escortOnboarding'])
         ->name('escort.onboarding');
     Route::post('escort/onboarding', [ProfileController::class, 'storeEscortOnboarding'])
         ->name('escort.onboarding.store');
 });
 
+/*
+|--------------------------------------------------------------------------
+| Push Subscriptions
+|--------------------------------------------------------------------------
+|
+| Save the authenticated user's push subscription.
+|
+*/
 Route::post('/push-subscriptions', function (Request $request) {
     $validated = $request->validate([
         'endpoint' => ['required', 'url', 'max:2048'],

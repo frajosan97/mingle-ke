@@ -76,7 +76,8 @@ export default function DeleteUser() {
                         </DialogHeader>
 
                         <Form
-                            {...ProfileController.destroy.form()}
+                            action={ProfileController.destroy()}
+                            method="delete"
                             options={{ preserveScroll: true }}
                             onError={() => passwordInput.current?.focus()}
                             resetOnSuccess

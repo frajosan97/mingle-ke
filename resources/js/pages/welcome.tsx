@@ -1,4 +1,3 @@
-// resources/js/pages/welcome.tsx
 import { Head, usePage } from "@inertiajs/react";
 import Header from "@/components/welcome/header";
 import Hero from "@/components/welcome/hero";
@@ -8,10 +7,20 @@ import Testimonials from "@/components/welcome/testimonials";
 import CTA from "@/components/welcome/cta";
 import Footer from "@/components/welcome/footer";
 import EscortsListing from "@/components/discover/escorts-listing";
-import { PREMIUM, REGULAR } from "@/components/welcome/data";
+import type { Profile } from "@/components/discover/profile-card";
+import type { StatItem } from "@/components/welcome/data";
+import type { Auth } from "@/types";
+
+interface WelcomeProps {
+    auth: { user: Auth["user"] | null };
+    premium: Profile[];
+    regular: Profile[];
+    stats: StatItem[];
+    [key: string]: unknown;
+}
 
 export default function Welcome() {
-    const { auth } = usePage().props;
+    const { auth, premium, regular, stats } = usePage<WelcomeProps>().props;
 
     return (
         <>
@@ -20,7 +29,7 @@ export default function Welcome() {
             <div className="min-h-screen bg-background text-foreground">
                 <Header user={auth.user} />
                 <Hero />
-                <Stats />
+                <Stats items={stats} />
 
                 <EscortsListing
                     id="premium"
@@ -28,7 +37,7 @@ export default function Welcome() {
                     title="Top verified escorts near you"
                     subtitle="Prioritized, verified, and ready to chat."
                     seeAllHref="/browse?tier=premium"
-                    profiles={PREMIUM}
+                    profiles={premium}
                 />
 
                 <Features />
@@ -39,7 +48,7 @@ export default function Welcome() {
                     title="More people nearby"
                     subtitle="New members joining every day."
                     seeAllHref="/browse?tier=regular"
-                    profiles={REGULAR}
+                    profiles={regular}
                 />
 
                 <Testimonials />
