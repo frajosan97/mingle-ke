@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { router, usePage } from "@inertiajs/react";
 import { useState } from "react";
+import { useLike } from "@/hooks/use-like";
+import { useStartChat } from "@/hooks/use-start-chat";
 
 export type AvailabilityStatus =
     | "online"
@@ -23,7 +25,6 @@ export interface Profile {
     age: number | null;
     gender: "male" | "female" | "other" | null;
     bio: string | null;
-    /** Always non-empty — server resolves a deterministic placeholder. */
     avatarUrl: string;
     distanceKm: number;
     locationName?: string;
@@ -36,6 +37,7 @@ export interface Profile {
     ratingAvg: number;
     verified: boolean;
     online: boolean;
+    isLiked: boolean;
 }
 
 interface AuthUser {
@@ -89,12 +91,13 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
     const { auth } = usePage<{ auth: { user: AuthUser | null } }>().props;
     const isLoggedIn = !!auth?.user;
 
-    // Only tracks *network* failures of the resolved URL (broken image).
-    // The "no uploaded avatar" case is handled server-side by avatarUrl().
     const [avatarFailed, setAvatarFailed] = useState(false);
 
-    const showAvatar = Boolean(profile.avatarUrl) && !avatarFailed;
+    // Custom Hooks
+    const { isLiked, isLiking, like } = useLike(profile.id, profile.isLiked);
+    const { startChat } = useStartChat();
 
+    const showAvatar = Boolean(profile.avatarUrl) && !avatarFailed;
     const availability = AVAILABILITY_META[profile.availabilityStatus];
 
     const handleCardClick = () => {
@@ -120,8 +123,10 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
 
         switch (action) {
             case "like":
+                like(e);
+                break;
             case "chat":
-                router.post(`/escorts/${profile.id}/like`);
+                startChat(profile.id);
                 break;
             case "view":
                 router.visit(`/escorts/${profile.id}`);
@@ -134,7 +139,6 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
             onClick={handleCardClick}
             className="group relative flex aspect-[3/4] w-full cursor-pointer flex-col overflow-hidden rounded-2xl bg-muted shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-brand-pink/20"
         >
-            {/* Background Image */}
             {showAvatar ? (
                 <img
                     src={profile.avatarUrl}
@@ -149,10 +153,8 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
                 </div>
             )}
 
-            {/* Gradient Overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent opacity-90 transition-opacity duration-300 group-hover:opacity-100" />
 
-            {/* ── Top row: VIP badge + availability + escort pill + verified ── */}
             <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between p-3">
                 <div className="flex flex-col gap-1.5">
                     {profile.isVip && (
@@ -196,7 +198,6 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
                 )}
             </div>
 
-            {/* ── Bottom info ───────────────────────────────────── */}
             <div className="relative z-10 mt-auto w-full p-3 text-white">
                 <div className="flex items-end justify-between gap-2">
                     <h3 className="truncate text-base font-bold leading-tight">
@@ -222,7 +223,6 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
                     </span>
                 </div>
 
-                {/* ── HOVER ACTION BAR ───────────────────────────── */}
                 <div className="mt-3 grid grid-rows-[0fr] opacity-0 transition-all duration-300 ease-out group-hover:grid-rows-[1fr] group-hover:opacity-100">
                     <div className="overflow-hidden">
                         <div className="mt-1 flex items-center justify-center gap-2">
@@ -238,10 +238,17 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
                                 <>
                                     <button
                                         onClick={(e) => handleAction(e, "like")}
-                                        className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-brand-pink hover:text-white active:scale-95"
-                                        title="Like"
+                                        disabled={isLiked || isLiking}
+                                        className={`flex h-9 w-9 items-center justify-center rounded-full backdrop-blur-md transition-all duration-200 active:scale-95 ${
+                                            isLiked
+                                                ? "bg-brand-pink text-white"
+                                                : "bg-white/15 text-white hover:scale-110 hover:bg-brand-pink hover:text-white"
+                                        }`}
+                                        title={isLiked ? "Liked" : "Like"}
                                     >
-                                        <Heart className="h-4 w-4" />
+                                        <Heart
+                                            className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`}
+                                        />
                                     </button>
 
                                     <button

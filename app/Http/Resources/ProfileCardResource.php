@@ -21,6 +21,8 @@ class ProfileCardResource extends JsonResource
         $profile = $user->relationLoaded('profile') ? $user->profile : null;
         $isEscort = $profile !== null;
 
+        $me = $request->user();
+
         return [
             'id' => $user->id,
             'name' => $user->name,
@@ -45,6 +47,9 @@ class ProfileCardResource extends JsonResource
             // Trust / activity
             'verified' => (bool) $user->is_verified,
             'online' => $user->last_active_at?->gt(now()->subMinutes(5)) ?? false,
+
+            // Relationship state
+            'isLiked' => $me ? $me->hasLiked($user) : false,
         ];
     }
 

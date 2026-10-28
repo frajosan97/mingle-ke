@@ -117,16 +117,23 @@ class EscortController extends Controller
             );
         }
 
+        // Load the escort profile (gallery lives here) + recent reviews.
         $user->loadMissing([
             'profile',
-            'photos',
-            // 'services',
-            // 'languages',
-            // 'reviews',
+            'reviewsReceived' => fn($q) => $q->latest()->limit(10),
         ]);
 
+        // Fetch 10 random other escorts to show in the desktop sidebar
+        $suggestedProfiles = User::with('profile')
+            ->where('id', '!=', $user->id)
+            ->whereHas('profile', fn($q) => $q->approved())
+            ->inRandomOrder()
+            ->take(10)
+            ->get();
+
         return Inertia::render('escort/show', [
-            'profile' => (new ProfileCardResource($user))->resolve(),
+            // Detail page uses the full resource
+            'profile' => (new ProfileResource($user))->resolve(),
             'isOwner' => $isOwner,
             'canMessage' => $me !== null
                 && !$isOwner
@@ -135,6 +142,9 @@ class EscortController extends Controller
             'isLiked' => $me !== null
                 && !$isOwner
                 && $me->hasLiked($user),
+
+            // Pass the sidebar profiles, using the card resource for lightweight payload
+            'suggestedProfiles' => ProfileCardResource::collection($suggestedProfiles)->resolve(),
         ]);
     }
 
@@ -163,17 +173,17 @@ class EscortController extends Controller
             'liked_user_id' => $user->id,
         ]);
 
-        // return response()->json([
-        //     'success' => true,
-        //     'liked' => true,
-        //     'message' => $like->wasRecentlyCreated
-        //         ? 'Profile liked.'
-        //         : 'Profile already liked.',
-        //     'data' => [
-        //         'user_id' => $user->id,
-        //         'liked_at' => $like->created_at?->toIso8601String(),
-        //     ],
-        // ]);
+        return response()->json([
+            'success' => true,
+            'liked' => true,
+            'message' => $like->wasRecentlyCreated
+                ? 'Profile liked.'
+                : 'Profile already liked.',
+            'data' => [
+                'user_id' => $user->id,
+                'liked_at' => $like->created_at?->toIso8601String(),
+            ],
+        ]);
     }
 
     public function updateLocation(UpdateLocationRequest $request)

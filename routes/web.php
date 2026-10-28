@@ -98,6 +98,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store'])
         ->name('messages.store');
 
+    Route::get('/messages/new', [ConversationController::class, 'create'])
+        ->name('messages.create');
     Route::delete('/messages/{message}', [MessageController::class, 'destroy'])
         ->name('messages.destroy');
 

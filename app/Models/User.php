@@ -58,6 +58,8 @@ use Rappasoft\LaravelAuthenticationLog\Traits\AuthenticationLoggable;
  *
  * @property-read string|null $avatar_url
  * @property-read UserProfile|null $profile
+ * @property-read UserProfile|null $photos
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, UserLike> $likes
  * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReview> $reviewsWritten
  * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReview> $reviewsReceived
  * @property-read \Illuminate\Database\Eloquent\Collection<int, User> $blockedUsers
@@ -192,6 +194,19 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 
     /** 1:1 — optional escort listing. Null if user is only social/dating. */
     public function profile(): HasOne
+    {
+        return $this->hasOne(UserProfile::class);
+    }
+
+    /**
+     * Convenience alias so existing code that calls `$user->photos`
+     * or `load('photos')` keeps working.
+     *
+     * The actual photo data lives on the escort profile:
+     *   $user->photos->gallery       (array of paths)
+     *   $user->photos->cover_image   (single path)
+     */
+    public function photos(): HasOne
     {
         return $this->hasOne(UserProfile::class);
     }
@@ -348,6 +363,14 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function isBlockedBy(User $other): bool
     {
         return $this->blockedBy()->whereKey($other->id)->exists();
+    }
+
+    /** Whether this user has liked the given user. */
+    public function hasLiked(User $other): bool
+    {
+        return $this->likes()
+            ->where('liked_user_id', $other->id)
+            ->exists();
     }
 
     /** Whether any coin payment is currently in flight (STK or C2B). */
