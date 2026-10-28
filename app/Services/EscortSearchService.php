@@ -93,8 +93,9 @@ class EscortSearchService
 
     public function paginateAnyDistance(Builder $query, float $lat, float $lng): LengthAwarePaginator
     {
-        // No caller-supplied sort — fixed default.
-        $query->orderByDesc('users.last_active_at');
+        // Premium first — and `escort` counts as premium. Then most recently active.
+        $query->orderByRaw($this->priorityOrderSql())
+            ->orderByDesc('users.last_active_at');
 
         $query->leftJoin('user_profiles', 'user_profiles.user_id', '=', 'users.id')
             ->select('users.*');
@@ -110,10 +111,18 @@ class EscortSearchService
      */
     public function paginateWithinRadius(Builder $query, float $lat, float $lng, float $radius, int $page): array
     {
-        $profiles = $query->limit(500)->get()
+        // Tier-first in SQL so the 500-row window is already priority-biased
+        // before the distance filter trims it down.
+        $profiles = $query->orderByRaw($this->priorityOrderSql())
+            ->limit(500)
+            ->get()
             ->map(fn(User $u) => $this->appendDistance($u, $lat, $lng))
             ->filter(fn(User $u) => $u->distance_km <= $radius)
-            ->sortBy(fn(User $u) => $u->distance_km) // closest first
+            ->sortBy([
+                // 1) Premium (incl. escort) first, 2) closest first.
+                fn(User $a, User $b) => $this->priorityRank($a) <=> $this->priorityRank($b),
+                fn(User $a, User $b) => $a->distance_km <=> $b->distance_km,
+            ])
             ->values();
 
         $total = $profiles->count();
@@ -149,6 +158,40 @@ class EscortSearchService
     }
 
     // ------------------------------------------------------------------ //
+
+    /**
+     * Single source of truth for ordering priority.
+     *
+     * Lower number = higher priority (so ascending sort works).
+     * `escort` is treated as premium automatically — both are top tier.
+     * Adjust the keys to match the values stored in `users.tier`.
+     */
+    private function priorityRank(User $user): int
+    {
+        // An escort is always premium — treat both as the top band.
+        if (in_array($user->tier, ['escort', 'premium'], true)) {
+            return 0;
+        }
+
+        return match ($user->tier) {
+            'free' => 1,
+            default => 2,
+        };
+    }
+
+    /**
+     * SQL equivalent of priorityRank(). Returns a CASE expression that
+     * yields 0 for escort/premium and higher numbers for everything else,
+     * so `ORDER BY ... ASC` puts premium users first.
+     */
+    private function priorityOrderSql(): string
+    {
+        return "CASE
+            WHEN users.tier IN ('escort', 'premium') THEN 0
+            WHEN users.tier = 'free'                THEN 1
+            ELSE 2
+        END ASC";
+    }
 
     private function applyProfileFilters(Builder $query, array $filters): void
     {

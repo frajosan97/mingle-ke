@@ -1,8 +1,26 @@
-import { Head, Link, router, usePage } from "@inertiajs/react";
-import { useMemo, useState, type ReactNode } from "react";
+// resources/js/pages/escorts/show.tsx
+import { Head, Link, usePage } from "@inertiajs/react";
+import { useMemo, useState } from "react";
+import {
+    BadgeCheck,
+    Check,
+    Compass,
+    Grid3x3,
+    Heart,
+    MapPin,
+    MoreHorizontal,
+    Play,
+    Share2,
+    Sparkles,
+    Star,
+    X,
+} from "lucide-react";
 import { useLike } from "@/hooks/use-like";
 import { useStartChat } from "@/hooks/use-start-chat";
 import { useShare } from "@/hooks/use-share";
+import SuggestedSidebar from "@/components/discover/suggested-sidebar";
+import { Stat } from "@/components/ui/stat";
+import { TabButton } from "@/components/ui/tab-button";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -95,11 +113,19 @@ export default function EscortShow({
         [esc],
     );
 
+    // Stable pseudo-random view counts (derived, not re-rolled each render)
+    const viewCounts = useMemo(
+        () =>
+            images.map(
+                (_, i) => 100 + ((profile.id * 7919 + i * 104729) % 49900),
+            ),
+        [images, profile.id],
+    );
+
     const [activeTab, setActiveTab] = useState<"photos" | "reviews">("photos");
     const [lightbox, setLightbox] = useState<number | null>(null);
     const [sortBy, setSortBy] = useState<"latest" | "popular">("latest");
 
-    // Custom Hooks
     const {
         isLiked: isCurrentlyLiked,
         isLiking,
@@ -114,74 +140,22 @@ export default function EscortShow({
     };
 
     return (
-        <div className="min-h-screen bg-white">
-            <Head title={`${profile.name} (@${handleOf(profile)}) | TikTok`} />
+        <div className="min-h-screen bg-background text-foreground">
+            <Head
+                title={`${profile.name} (@${handleOf(profile)}) · Discover`}
+            />
 
             <div className="mx-auto flex max-w-[1600px]">
                 {/* ── Left Sidebar (Suggested Profiles) ───────────────── */}
-                <aside className="sticky top-0 hidden h-screen w-[260px] shrink-0 flex-col border-r border-slate-100 px-4 py-6 xl:flex">
-                    <Link
-                        href="/"
-                        className="mb-6 flex items-center gap-2 px-2 text-xl font-bold"
-                    >
-                        <span className="text-rose-500 text-2xl">🎵</span>{" "}
-                        Escorts
-                    </Link>
-
-                    <div className="mb-4 flex items-center justify-between px-2">
-                        <h3 className="text-sm font-semibold text-slate-500">
-                            Suggested for you
-                        </h3>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto space-y-1 pr-2 custom-scrollbar">
-                        {suggestedProfiles.map((p) => (
-                            <Link
-                                key={p.id}
-                                href={`/escorts/${p.id}`}
-                                className="flex items-center gap-3 rounded-lg p-2 transition hover:bg-slate-50 active:scale-[0.98]"
-                            >
-                                <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200">
-                                    {p.avatarUrl ? (
-                                        <img
-                                            src={p.avatarUrl}
-                                            alt={p.name}
-                                            className="h-full w-full object-cover"
-                                        />
-                                    ) : (
-                                        <div className="flex h-full w-full items-center justify-center bg-slate-100 text-sm font-bold text-slate-400">
-                                            {p.name.charAt(0).toUpperCase()}
-                                        </div>
-                                    )}
-                                    {p.online && (
-                                        <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-white bg-emerald-500" />
-                                    )}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <p className="truncate text-sm font-semibold text-slate-900 flex items-center gap-1">
-                                        {p.name}
-                                        {p.verified && (
-                                            <Icon
-                                                name="check"
-                                                className="h-3 w-3 text-sky-500"
-                                            />
-                                        )}
-                                    </p>
-                                    <p className="truncate text-xs text-slate-500">
-                                        @{handleOf(p)}
-                                    </p>
-                                </div>
-                            </Link>
-                        ))}
-                    </div>
-                </aside>
+                <SuggestedSidebar profiles={suggestedProfiles} />
 
                 {/* ── Main Content ────────────────────────────────────── */}
-                <main className="flex-1 px-4 py-6 md:px-10 lg:px-16">
+                <main className="min-w-0 flex-1 px-4 py-6 md:px-10 lg:px-16">
                     {/* ── Profile Header ──────────────────────────────── */}
-                    <div className="flex flex-col items-center gap-6 md:flex-row md:items-start md:gap-10">
+                    <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start sm:gap-6">
+                        {/* Avatar */}
                         <div className="relative shrink-0">
-                            <div className="h-32 w-32 overflow-hidden rounded-full border-2 border-slate-200 md:h-40 md:w-40">
+                            <div className="h-24 w-24 overflow-hidden rounded-full border-2 border-border bg-card sm:h-28 sm:w-28">
                                 {profile.avatarUrl ? (
                                     <img
                                         src={profile.avatarUrl}
@@ -189,213 +163,232 @@ export default function EscortShow({
                                         className="h-full w-full object-cover"
                                     />
                                 ) : (
-                                    <div className="flex h-full w-full items-center justify-center bg-slate-50 text-5xl font-bold text-slate-300">
+                                    <div className="flex h-full w-full items-center justify-center bg-gradient-brand-soft text-3xl font-bold text-brand-pink">
                                         {profile.name.charAt(0).toUpperCase()}
                                     </div>
                                 )}
                             </div>
+                            {profile.online && (
+                                <span
+                                    className="absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-background bg-emerald-500"
+                                    aria-label="Online"
+                                />
+                            )}
                         </div>
 
-                        <div className="flex-1 text-center md:text-left">
-                            <div className="flex flex-col items-center md:items-start">
-                                <div className="flex items-center gap-2">
-                                    <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                        <div className="min-w-0 flex-1 text-center sm:text-left">
+                            {/* Name + handle + location (single tight block) */}
+                            <div className="flex flex-col items-center sm:items-start">
+                                <div className="flex items-center gap-1.5">
+                                    <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
                                         {profile.name}
                                     </h1>
                                     {profile.verified && (
-                                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-sky-500 text-white">
-                                            <Icon
-                                                name="check"
-                                                className="h-2.5 w-2.5"
-                                            />
-                                        </span>
+                                        <BadgeCheck
+                                            className="h-4 w-4 text-sky-500"
+                                            aria-label="Verified"
+                                        />
                                     )}
                                 </div>
-                                <p className="mt-1 text-lg font-semibold text-slate-500">
-                                    @{handleOf(profile)}
+                                <p className="mt-0.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground sm:justify-start">
+                                    <span>@{handleOf(profile)}</span>
+                                    {profile.locationName && (
+                                        <>
+                                            <span
+                                                aria-hidden="true"
+                                                className="text-muted-foreground/40"
+                                            >
+                                                ·
+                                            </span>
+                                            <span className="flex items-center gap-1">
+                                                <MapPin className="h-3 w-3" />
+                                                {profile.locationName}
+                                                {profile.area &&
+                                                    ` · ${profile.area}`}
+                                            </span>
+                                        </>
+                                    )}
                                 </p>
                             </div>
 
-                            {/* Action Buttons */}
-                            <div className="mt-5 flex flex-wrap items-center justify-center gap-3 md:justify-start">
-                                {isOwner ? (
-                                    <>
-                                        <Link
-                                            href={`/escorts/${profile.id}/edit`}
-                                            className="rounded-md bg-rose-500 px-8 py-2 text-sm font-semibold text-white transition hover:bg-rose-600 active:scale-95"
-                                        >
-                                            Edit Profile
-                                        </Link>
-                                        <button
-                                            onClick={handleShare}
-                                            className="rounded-md bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-200"
-                                        >
-                                            {isCopied ? "Copied!" : "Share"}
-                                        </button>
-                                    </>
-                                ) : (
-                                    <>
-                                        {canMessage ? (
-                                            <button
-                                                onClick={() =>
-                                                    startChat(profile.id)
-                                                }
-                                                className="rounded-md bg-rose-500 px-8 py-2 text-sm font-semibold text-white transition hover:bg-rose-600 active:scale-95"
-                                            >
-                                                Message
-                                            </button>
-                                        ) : (
-                                            <button
-                                                disabled
-                                                className="rounded-md bg-slate-100 px-8 py-2 text-sm font-semibold text-slate-400"
-                                            >
-                                                Unavailable
-                                            </button>
-                                        )}
-
-                                        {auth?.user && (
-                                            <button
-                                                onClick={like}
-                                                disabled={
-                                                    isCurrentlyLiked || isLiking
-                                                }
-                                                className={`flex items-center gap-2 rounded-md px-6 py-2 text-sm font-semibold transition active:scale-95 ${
-                                                    isCurrentlyLiked
-                                                        ? "bg-rose-50 text-rose-600"
-                                                        : "bg-slate-100 text-slate-900 hover:bg-slate-200"
-                                                }`}
-                                            >
-                                                <Icon
-                                                    name={
-                                                        isCurrentlyLiked
-                                                            ? "heart-filled"
-                                                            : "heart"
-                                                    }
-                                                    className="h-4 w-4"
-                                                />
-                                                {isCurrentlyLiked
-                                                    ? "Liked"
-                                                    : "Like"}
-                                            </button>
-                                        )}
-
-                                        <button
-                                            onClick={handleShare}
-                                            className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-100 text-slate-900 transition hover:bg-slate-200"
-                                            title={
-                                                isCopied ? "Copied!" : "Share"
-                                            }
-                                        >
-                                            <Icon
-                                                name="share"
-                                                className="h-4 w-4"
-                                            />
-                                        </button>
-                                        <button className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-100 text-slate-900 transition hover:bg-slate-200">
-                                            <Icon
-                                                name="more"
-                                                className="h-4 w-4"
-                                            />
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-
-                            {/* Stats */}
-                            <div className="mt-4 flex items-center justify-center gap-5 text-base md:justify-start">
-                                <div className="flex items-center gap-1">
-                                    <span className="font-bold text-slate-900">
-                                        {esc?.ratingCount || 0}
-                                    </span>
-                                    <span className="text-slate-500">
-                                        Reviews
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <span className="font-bold text-slate-900">
-                                        {esc?.ratingAvg
-                                            ? esc.ratingAvg.toFixed(1)
-                                            : "0.0"}
-                                    </span>
-                                    <span className="text-slate-500">
-                                        Rating
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <span className="font-bold text-slate-900">
-                                        {esc?.profileViews.toLocaleString() ||
-                                            0}
-                                    </span>
-                                    <span className="text-slate-500">
-                                        Views
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Bio */}
-                            {profile.bio && (
-                                <div className="mt-4 max-w-lg text-sm text-slate-900">
-                                    {profile.bio.split("\n").map((line, i) => (
-                                        <p key={i}>{line}</p>
-                                    ))}
+                            {/* Tags — pulled up next to name (was at the bottom) */}
+                            {(profile.isVip ||
+                                esc?.isAvailable ||
+                                esc?.isFeatured) && (
+                                <div className="mt-2 flex flex-wrap justify-center gap-1.5 sm:justify-start">
+                                    {profile.isVip && (
+                                        <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+                                            VIP
+                                        </span>
+                                    )}
+                                    {esc?.isAvailable && (
+                                        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                            Available now
+                                        </span>
+                                    )}
+                                    {esc?.isFeatured && (
+                                        <span className="rounded-full border border-brand-pink/30 bg-gradient-brand-soft px-2 py-0.5 text-[11px] font-semibold text-brand-pink">
+                                            Featured
+                                        </span>
+                                    )}
                                 </div>
                             )}
 
-                            {/* Tags/Badges */}
-                            <div className="mt-2 flex flex-wrap justify-center gap-2 md:justify-start">
-                                {profile.isVip && (
-                                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200">
-                                        VIP
-                                    </span>
-                                )}
-                                {esc?.isAvailable && (
-                                    <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                                        Available
-                                    </span>
-                                )}
+                            {/* Bio — clamped to 2 lines */}
+                            {profile.bio && (
+                                <p className="mt-2 line-clamp-2 max-w-lg text-sm text-foreground/80">
+                                    {profile.bio}
+                                </p>
+                            )}
+
+                            {/* Actions + stats inline on desktop */}
+                            <div className="mt-3 flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                {/* Action Buttons */}
+                                <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                                    {isOwner ? (
+                                        <>
+                                            <Link
+                                                href={`/escorts/${profile.id}/edit`}
+                                                className="rounded-full bg-gradient-brand px-5 py-1.5 text-sm font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift active:scale-95"
+                                            >
+                                                Edit Profile
+                                            </Link>
+                                            <button
+                                                onClick={handleShare}
+                                                className="rounded-full border border-border bg-card px-5 py-1.5 text-sm font-semibold text-foreground transition hover:bg-accent active:scale-95"
+                                            >
+                                                {isCopied ? "Copied!" : "Share"}
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {canMessage ? (
+                                                <button
+                                                    onClick={() =>
+                                                        startChat(profile.id)
+                                                    }
+                                                    className="rounded-full bg-gradient-brand px-6 py-1.5 text-sm font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift active:scale-95"
+                                                >
+                                                    Message
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    disabled
+                                                    className="cursor-not-allowed rounded-full border border-border bg-muted px-6 py-1.5 text-sm font-semibold text-muted-foreground/60"
+                                                >
+                                                    Unavailable
+                                                </button>
+                                            )}
+
+                                            {auth?.user && (
+                                                <button
+                                                    onClick={like}
+                                                    disabled={
+                                                        isCurrentlyLiked ||
+                                                        isLiking
+                                                    }
+                                                    className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition active:scale-95 ${
+                                                        isCurrentlyLiked
+                                                            ? "border border-brand-pink/40 bg-gradient-brand-soft text-brand-pink"
+                                                            : "border border-border bg-card text-foreground hover:bg-accent"
+                                                    }`}
+                                                >
+                                                    <Heart
+                                                        className="h-4 w-4"
+                                                        fill={
+                                                            isCurrentlyLiked
+                                                                ? "currentColor"
+                                                                : "none"
+                                                        }
+                                                    />
+                                                    {isCurrentlyLiked
+                                                        ? "Liked"
+                                                        : "Like"}
+                                                </button>
+                                            )}
+
+                                            <button
+                                                onClick={handleShare}
+                                                className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-foreground transition hover:bg-accent"
+                                                title={
+                                                    isCopied
+                                                        ? "Copied!"
+                                                        : "Share"
+                                                }
+                                            >
+                                                <Share2 className="h-4 w-4" />
+                                            </button>
+                                            <button className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-foreground transition hover:bg-accent">
+                                                <MoreHorizontal className="h-4 w-4" />
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+
+                                {/* Stats — inline right of buttons on desktop */}
+                                <div className="flex items-center gap-4 text-sm sm:gap-5">
+                                    <Stat
+                                        value={esc?.ratingCount ?? 0}
+                                        label="Reviews"
+                                    />
+                                    <Stat
+                                        value={
+                                            esc?.ratingAvg
+                                                ? esc.ratingAvg.toFixed(1)
+                                                : "0.0"
+                                        }
+                                        label="Rating"
+                                    />
+                                    <Stat
+                                        value={(
+                                            esc?.profileViews ?? 0
+                                        ).toLocaleString()}
+                                        label="Views"
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     {/* ── Tabs ────────────────────────────────────────── */}
-                    <div className="mt-8 border-b border-slate-200">
+                    <div className="mt-8 border-b border-border">
                         <div className="flex items-center justify-between">
                             <div className="flex gap-8">
-                                <button
+                                <TabButton
+                                    active={activeTab === "photos"}
                                     onClick={() => setActiveTab("photos")}
-                                    className={`flex items-center gap-2 pb-3 text-base font-semibold transition-colors ${
-                                        activeTab === "photos"
-                                            ? "border-b-2 border-slate-900 text-slate-900"
-                                            : "text-slate-500 hover:text-slate-800"
-                                    }`}
-                                >
-                                    <Icon name="grid" className="h-4 w-4" />
-                                    Photos
-                                </button>
-                                <button
+                                    icon={<Grid3x3 className="h-4 w-4" />}
+                                    label="Photos"
+                                    count={images.length}
+                                />
+                                <TabButton
+                                    active={activeTab === "reviews"}
                                     onClick={() => setActiveTab("reviews")}
-                                    className={`flex items-center gap-2 pb-3 text-base font-semibold transition-colors ${
-                                        activeTab === "reviews"
-                                            ? "border-b-2 border-slate-900 text-slate-900"
-                                            : "text-slate-500 hover:text-slate-800"
-                                    }`}
-                                >
-                                    <Icon name="heart" className="h-4 w-4" />
-                                    Reviews
-                                </button>
+                                    icon={<Heart className="h-4 w-4" />}
+                                    label="Reviews"
+                                    count={profile.reviews.length}
+                                />
                             </div>
 
                             <div className="hidden pb-2 sm:block">
-                                <div className="flex rounded-md border border-slate-200 text-xs font-medium">
+                                <div className="flex rounded-full border border-border bg-card p-0.5 text-xs font-medium">
                                     <button
                                         onClick={() => setSortBy("latest")}
-                                        className={`px-3 py-1.5 rounded-l-md ${sortBy === "latest" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:bg-slate-50"}`}
+                                        className={`rounded-full px-3 py-1.5 transition ${
+                                            sortBy === "latest"
+                                                ? "bg-gradient-brand-soft text-brand-pink"
+                                                : "text-muted-foreground hover:text-foreground"
+                                        }`}
                                     >
                                         Latest
                                     </button>
                                     <button
                                         onClick={() => setSortBy("popular")}
-                                        className={`px-3 py-1.5 border-l border-slate-200 rounded-r-md ${sortBy === "popular" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:bg-slate-50"}`}
+                                        className={`rounded-full px-3 py-1.5 transition ${
+                                            sortBy === "popular"
+                                                ? "bg-gradient-brand-soft text-brand-pink"
+                                                : "text-muted-foreground hover:text-foreground"
+                                        }`}
                                     >
                                         Popular
                                     </button>
@@ -412,7 +405,7 @@ export default function EscortShow({
                                     <button
                                         key={i}
                                         onClick={() => setLightbox(i)}
-                                        className="group relative aspect-[9/16] overflow-hidden rounded-md bg-slate-100"
+                                        className="group relative aspect-[9/16] overflow-hidden rounded-lg bg-muted"
                                     >
                                         <img
                                             src={src}
@@ -421,22 +414,14 @@ export default function EscortShow({
                                         />
 
                                         {i === 0 && (
-                                            <span className="absolute left-2 top-2 rounded bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                                            <span className="absolute left-2 top-2 rounded-full bg-gradient-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-glow-pink">
                                                 Pinned
                                             </span>
                                         )}
-                                        <div className="absolute bottom-2 left-2 flex items-center gap-1 text-white drop-shadow-md">
-                                            <Icon
-                                                name="play"
-                                                className="h-3 w-3"
-                                                fill="white"
-                                            />
+                                        <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-black/50 px-1.5 py-0.5 text-white backdrop-blur-sm">
+                                            <Play className="h-3 w-3 fill-white" />
                                             <span className="text-xs font-semibold">
-                                                {(
-                                                    Math.floor(
-                                                        Math.random() * 50000,
-                                                    ) + 100
-                                                ).toLocaleString()}
+                                                {viewCounts[i].toLocaleString()}
                                             </span>
                                         </div>
                                     </button>
@@ -445,7 +430,7 @@ export default function EscortShow({
                         )}
 
                         {activeTab === "reviews" && (
-                            <div className="max-w-2xl mx-auto mt-6">
+                            <div className="mx-auto mt-6 max-w-2xl">
                                 <ReviewsTab reviews={profile.reviews} />
                             </div>
                         )}
@@ -473,33 +458,37 @@ export default function EscortShow({
 function ReviewsTab({ reviews }: { reviews: Review[] }) {
     if (reviews.length === 0)
         return (
-            <div className="text-center text-slate-500 py-10">
+            <div className="py-10 text-center text-sm text-muted-foreground">
                 No reviews yet.
             </div>
         );
+
     return (
-        <ul className="space-y-4">
+        <ul className="space-y-3">
             {reviews.map((r) => (
                 <li
                     key={r.id}
-                    className="rounded-xl border border-slate-100 p-4 shadow-sm"
+                    className="rounded-xl border border-border bg-card p-4 shadow-sm"
                 >
                     <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-900">
+                        <span className="text-sm font-semibold text-foreground">
                             {r.reviewerName || "Anonymous"}
                         </span>
-                        <div className="flex text-amber-500">
-                            {[...Array(5)].map((_, i) => (
-                                <Icon
+                        <div className="flex gap-0.5">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                                <Star
                                     key={i}
-                                    name="star-filled"
-                                    className={`h-4 w-4 ${i < r.rating ? "text-amber-500" : "text-slate-200"}`}
+                                    className={`h-4 w-4 ${
+                                        i < r.rating
+                                            ? "fill-amber-500 text-amber-500"
+                                            : "fill-none text-muted-foreground/30"
+                                    }`}
                                 />
                             ))}
                         </div>
                     </div>
                     {r.comment && (
-                        <p className="mt-2 text-sm text-slate-700">
+                        <p className="mt-2 text-sm text-foreground/80">
                             {r.comment}
                         </p>
                     )}
@@ -513,7 +502,6 @@ function Lightbox({
     images,
     index,
     onClose,
-    onIndex,
 }: {
     images: string[];
     index: number;
@@ -530,9 +518,10 @@ function Lightbox({
                     e.stopPropagation();
                     onClose();
                 }}
-                className="absolute right-6 top-6 text-white hover:text-slate-300"
+                className="absolute right-6 top-6 rounded-full p-2 text-white transition hover:bg-white/10"
+                aria-label="Close"
             >
-                <Icon name="x" className="h-8 w-8" />
+                <X className="h-7 w-7" />
             </button>
             <img
                 src={images[index]}
@@ -545,84 +534,9 @@ function Lightbox({
 }
 
 /* ------------------------------------------------------------------ */
-/* Helpers & Icons                                                     */
+/* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-function handleOf(profile: Profile): string {
+function handleOf(profile: { name: string }): string {
     return profile.name.toLowerCase().replace(/\s+/g, "");
-}
-
-function Icon({
-    name,
-    className = "h-4 w-4",
-    fill = "none",
-}: {
-    name: string;
-    className?: string;
-    fill?: string;
-}) {
-    const paths: Record<string, ReactNode> = {
-        share: (
-            <>
-                <circle cx="18" cy="5" r="3" />
-                <circle cx="6" cy="12" r="3" />
-                <circle cx="18" cy="19" r="3" />
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-            </>
-        ),
-        more: (
-            <>
-                <circle cx="12" cy="12" r="1" />
-                <circle cx="19" cy="12" r="1" />
-                <circle cx="5" cy="12" r="1" />
-            </>
-        ),
-        grid: (
-            <>
-                <rect width="7" height="7" x="3" y="3" rx="1" />
-                <rect width="7" height="7" x="14" y="3" rx="1" />
-                <rect width="7" height="7" x="14" y="14" rx="1" />
-                <rect width="7" height="7" x="3" y="14" rx="1" />
-            </>
-        ),
-        heart: (
-            <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-        ),
-        "heart-filled": (
-            <path
-                d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
-                fill="currentColor"
-            />
-        ),
-        check: <polyline points="20 6 9 17 4 12" />,
-        play: <polygon points="5 3 19 12 5 21 5 3" fill={fill} stroke={fill} />,
-        "star-filled": (
-            <path
-                d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
-                fill="currentColor"
-            />
-        ),
-        x: (
-            <>
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-            </>
-        ),
-    };
-
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill={fill}
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={className}
-        >
-            {paths[name] || null}
-        </svg>
-    );
 }
