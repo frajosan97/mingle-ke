@@ -115,12 +115,5 @@ class EscortProfileSeeder extends Seeder
                 'rating_avg' => rand(0, 50) / 10,
             ]);
         }
-
-        $this->command->info(sprintf(
-            'Seeded %d escort profiles (%d premium, %d regular).',
-            $allUsers->count(),
-            $premiumUsers->count(),
-            $regularUsers->count(),
-        ));
     }
 }

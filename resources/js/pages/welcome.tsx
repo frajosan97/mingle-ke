@@ -36,7 +36,7 @@ export default function Welcome() {
                     tier="premium"
                     title="Top verified escorts near you"
                     subtitle="Prioritized, verified, and ready to chat."
-                    seeAllHref="/browse?tier=premium"
+                    seeAllHref="/discover?tier=premium"
                     profiles={premium}
                 />
 
@@ -47,7 +47,7 @@ export default function Welcome() {
                     tier="regular"
                     title="More people nearby"
                     subtitle="New members joining every day."
-                    seeAllHref="/browse?tier=regular"
+                    seeAllHref="/discover?tier=regular"
                     profiles={regular}
                 />
 

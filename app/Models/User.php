@@ -24,6 +24,7 @@ use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Sanctum\HasApiTokens;
 use NotificationChannels\WebPush\HasPushSubscriptions;
+use Rappasoft\LaravelAuthenticationLog\Traits\AuthenticationLoggable;
 
 /**
  * @property int $id
@@ -101,6 +102,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
     use HasSocialAccounts;
+    use AuthenticationLoggable;
     use HasPushSubscriptions;
     use SoftDeletes;
 
@@ -192,6 +194,11 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function profile(): HasOne
     {
         return $this->hasOne(UserProfile::class);
+    }
+
+    public function likes(): HasMany
+    {
+        return $this->hasMany(UserLike::class);
     }
 
     /** Reviews this user wrote about escorts. */

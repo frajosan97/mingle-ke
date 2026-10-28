@@ -2,8 +2,8 @@
 
 namespace App\Http\Middleware;
 
-use App\Services\ConversationShareService;
-use App\Services\LocationShareService;
+use App\Services\ConversationService;
+use App\Services\LocationService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -12,8 +12,8 @@ class HandleInertiaRequests extends Middleware
     protected $rootView = 'app';
 
     public function __construct(
-        private readonly ConversationShareService $conversations,
-        private readonly LocationShareService $location,
+        private readonly ConversationService $conversations,
+        private readonly LocationService $location,
     ) {
     }
 
@@ -32,7 +32,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'sidebarOpen' => !$request->hasCookie('sidebar_state')
                 || $request->cookie('sidebar_state') === 'true',
-            'location' => fn() => $this->location->forRequest($request),
+            'location' => fn() => $this->location->resolve($request),
             'conversations' => fn() => $request->user()
                 ? $this->conversations->forUser($request->user())
                 : [],

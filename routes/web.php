@@ -3,7 +3,7 @@
 use App\Http\Controllers\CoinController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DeviceStatusController;
-use App\Http\Controllers\DiscoverController;
+use App\Http\Controllers\EscortController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\Settings\ProfileController;
@@ -28,8 +28,19 @@ Route::get('/', HomeController::class)->name('home');
 | Browse profiles and interact with other users.
 |
 */
-Route::get('/discover', [DiscoverController::class, 'index'])
+Route::get('/discover', [EscortController::class, 'index'])
     ->name('discover.index');
+
+/*
+|--------------------------------------------------------------------------
+| Escorts
+|--------------------------------------------------------------------------
+|
+| Display an escort's profile.
+|
+*/
+Route::get('/escorts/{user}', [EscortController::class, 'show'])
+    ->name('escorts.show');
 
 /*
 |--------------------------------------------------------------------------
@@ -39,7 +50,7 @@ Route::get('/discover', [DiscoverController::class, 'index'])
 | Update the authenticated user's location.
 |
 */
-Route::post('/location/update', [DiscoverController::class, 'updateLocation'])
+Route::post('/location/update', [EscortController::class, 'updateLocation'])
     ->name('location.update');
 
 /*
@@ -104,8 +115,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     | Browse profiles and interact with other users.
     |
     */
-    Route::post('/discover/{user}/like', [DiscoverController::class, 'like'])
-        ->name('discover.like');
+    Route::post('/escorts/{user}/like', [EscortController::class, 'like'])
+        ->name('escorts.like');
 
     /*
     |--------------------------------------------------------------------------
@@ -139,19 +150,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/device-status', [DeviceStatusController::class, 'update'])
         ->middleware(['throttle:60,1'])
         ->name('device-status.update');
-
-    /*
-    |--------------------------------------------------------------------------
-    | Profile
-    |--------------------------------------------------------------------------
-    |
-    | Update the authenticated user's profile.
-    |
-    */
-    // Route::get('/profile', [ProfileController::class, 'index'])
-    //     ->name('profile.index');
-    // Route::post('/profile', [ProfileController::class, 'update'])
-    //     ->name('profile.update');
 
     /*
     |--------------------------------------------------------------------------

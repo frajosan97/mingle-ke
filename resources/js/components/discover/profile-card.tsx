@@ -121,7 +121,7 @@ export default function ProfileCard({ profile, onClick }: ProfileCardProps) {
         switch (action) {
             case "like":
             case "chat":
-                router.post(`/discover/${profile.id}/like`);
+                router.post(`/escorts/${profile.id}/like`);
                 break;
             case "view":
                 router.visit(`/escorts/${profile.id}`);

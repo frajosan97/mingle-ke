@@ -215,13 +215,22 @@ const SERVICE_OPTIONS: FilterOption<string>[] = [
     "Companionship only",
 ].map((s) => ({ value: s, label: s }));
 
+/* Kenyan communities / ethnic groups */
 const ETHNICITY_OPTIONS: FilterOption<string>[] = [
-    "African",
-    "Asian",
-    "Caucasian",
-    "Hispanic",
-    "Middle Eastern",
-    "Mixed",
+    "Kikuyu",
+    "Luhya",
+    "Kalenjin",
+    "Luo",
+    "Kamba",
+    "Kisii",
+    "Meru",
+    "Mijikenda",
+    "Maasai",
+    "Turkana",
+    "Somali",
+    "Taita",
+    "Embu",
+    "Samburu",
     "Other",
 ].map((s) => ({ value: s, label: s }));
 
@@ -234,12 +243,9 @@ const BODY_TYPE_OPTIONS: FilterOption<string>[] = [
     "Plus-size",
 ].map((s) => ({ value: s, label: s }));
 
-const SORT_OPTIONS: FilterOption<string>[] = [
-    { value: "distance", label: "Closest first" },
-    { value: "newest", label: "Recently active" },
-    { value: "rating", label: "Top rated" },
-    { value: "price_asc", label: "Price: low → high" },
-    { value: "price_desc", label: "Price: high → low" },
+const TIER_OPTIONS: FilterOption<string>[] = [
+    { value: "premium", label: "Premium", badge: "★" },
+    { value: "regular", label: "Regular" },
 ];
 
 export interface DiscoverFilters {
@@ -252,13 +258,9 @@ export interface DiscoverFilters {
     body_type: string | null;
     age_min: number | null;
     age_max: number | null;
-    price_min: number | null;
-    price_max: number | null;
-    available_only: boolean;
-    verified_only: boolean;
+    tier: string | null;
     incall: boolean;
     outcall: boolean;
-    sort: string;
 }
 
 interface FilterBarProps {
@@ -270,24 +272,15 @@ interface FilterBarProps {
 const ADVANCED_KEYS: (keyof DiscoverFilters)[] = [
     "age_min",
     "age_max",
-    "price_min",
-    "price_max",
     "body_type",
     "ethnicity",
+    "tier",
     "incall",
     "outcall",
 ];
 
 /** Inline controls in priority order (least → most likely to overflow). */
-type InlineKey =
-    | "radius"
-    | "county"
-    | "town"
-    | "gender"
-    | "service"
-    | "available_only"
-    | "verified_only"
-    | "sort";
+type InlineKey = "radius" | "county" | "town" | "gender" | "service";
 
 const INLINE_WIDTHS: Record<InlineKey, number> = {
     radius: 170,
@@ -295,9 +288,6 @@ const INLINE_WIDTHS: Record<InlineKey, number> = {
     town: 170,
     gender: 160,
     service: 210,
-    available_only: 130,
-    verified_only: 100,
-    sort: 190,
 };
 
 const GAP = 12; // gap-3
@@ -394,10 +384,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
                 filters.body_type,
                 filters.age_min,
                 filters.age_max,
-                filters.price_min,
-                filters.price_max,
-                filters.available_only ? 1 : null,
-                filters.verified_only ? 1 : null,
+                filters.tier,
                 filters.incall ? 1 : null,
                 filters.outcall ? 1 : null,
             ].filter(Boolean).length,
@@ -449,8 +436,6 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
         return { visible: vis, hidden: hid };
     }, [containerWidth, totalActive]);
 
-    const showInline = (k: InlineKey) => visible.includes(k);
-
     /* ── Navigation ──────────────────────────────────────── */
     function update(partial: Partial<DiscoverFilters>) {
         const next = { ...filters, ...partial };
@@ -482,7 +467,6 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
     }
 
     const radiusValue = filters.radius ?? "50";
-    const sortValue = filters.sort ?? "distance";
 
     const dotsBadge = advancedCount + hidden.length;
 
@@ -566,53 +550,6 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
                         />
                     </div>
                 );
-            case "available_only":
-                return (
-                    <label
-                        key={k}
-                        className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-1.5 text-xs text-foreground transition hover:bg-accent"
-                    >
-                        <input
-                            type="checkbox"
-                            checked={filters.available_only}
-                            onChange={(e) =>
-                                update({ available_only: e.target.checked })
-                            }
-                            className="accent-brand-pink"
-                        />
-                        Available now
-                    </label>
-                );
-            case "verified_only":
-                return (
-                    <label
-                        key={k}
-                        className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-1.5 text-xs text-foreground transition hover:bg-accent"
-                    >
-                        <input
-                            type="checkbox"
-                            checked={filters.verified_only}
-                            onChange={(e) =>
-                                update({ verified_only: e.target.checked })
-                            }
-                            className="accent-brand-pink"
-                        />
-                        Verified
-                    </label>
-                );
-            case "sort":
-                return (
-                    <div key={k} className="w-[190px] shrink-0">
-                        <FilterSelect
-                            options={SORT_OPTIONS}
-                            value={sortValue}
-                            onChange={(v) => update({ sort: v ?? "distance" })}
-                            placeholder="Sort"
-                            isClearable={false}
-                            isSearchable={false}
-                        />
-                    </div>
-                );
         }
     };
 
@@ -680,52 +617,6 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
                             options={SERVICE_OPTIONS}
                             value={filters.service}
                             onChange={(v) => update({ service: v })}
-                        />
-                    </LabeledRow>
-                );
-            case "available_only":
-                return (
-                    <label
-                        key={k}
-                        className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
-                    >
-                        <input
-                            type="checkbox"
-                            checked={filters.available_only}
-                            onChange={(e) =>
-                                update({ available_only: e.target.checked })
-                            }
-                            className="accent-brand-pink"
-                        />
-                        Available now
-                    </label>
-                );
-            case "verified_only":
-                return (
-                    <label
-                        key={k}
-                        className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
-                    >
-                        <input
-                            type="checkbox"
-                            checked={filters.verified_only}
-                            onChange={(e) =>
-                                update({ verified_only: e.target.checked })
-                            }
-                            className="accent-brand-pink"
-                        />
-                        Verified
-                    </label>
-                );
-            case "sort":
-                return (
-                    <LabeledRow key={k} label="Sort">
-                        <FilterSelect
-                            options={SORT_OPTIONS}
-                            value={sortValue}
-                            onChange={(v) => update({ sort: v ?? "distance" })}
-                            isClearable={false}
-                            isSearchable={false}
                         />
                     </LabeledRow>
                 );
@@ -841,47 +732,6 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
                                         </div>
                                     </LabeledRow>
 
-                                    <LabeledRow label="Hourly price">
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <input
-                                                type="number"
-                                                min={0}
-                                                placeholder="Min"
-                                                value={filters.price_min ?? ""}
-                                                onChange={(e) =>
-                                                    update({
-                                                        price_min: e.target
-                                                            .value
-                                                            ? Number(
-                                                                  e.target
-                                                                      .value,
-                                                              )
-                                                            : null,
-                                                    })
-                                                }
-                                                className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring"
-                                            />
-                                            <input
-                                                type="number"
-                                                min={0}
-                                                placeholder="Max"
-                                                value={filters.price_max ?? ""}
-                                                onChange={(e) =>
-                                                    update({
-                                                        price_max: e.target
-                                                            .value
-                                                            ? Number(
-                                                                  e.target
-                                                                      .value,
-                                                              )
-                                                            : null,
-                                                    })
-                                                }
-                                                className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring"
-                                            />
-                                        </div>
-                                    </LabeledRow>
-
                                     <LabeledRow label="Body type">
                                         <FilterSelect
                                             options={BODY_TYPE_OPTIONS}
@@ -902,6 +752,18 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
                                                 update({ ethnicity: v })
                                             }
                                             placeholder="Any"
+                                            isSearchable={false}
+                                        />
+                                    </LabeledRow>
+
+                                    <LabeledRow label="Tier">
+                                        <FilterSelect
+                                            options={TIER_OPTIONS}
+                                            value={filters.tier}
+                                            onChange={(v) =>
+                                                update({ tier: v })
+                                            }
+                                            placeholder="Any tier"
                                             isSearchable={false}
                                         />
                                     </LabeledRow>

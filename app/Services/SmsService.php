@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\Message;
+use App\Models\SmsNotification;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 use Illuminate\Support\Facades\Log;
@@ -56,7 +56,7 @@ class SmsService
             return false;
         }
 
-        $this->saveMessage($responseInfo, $mobile, $message, $clientSmsId);
+        $this->saveNotification($responseInfo, $mobile, $message, $clientSmsId);
 
         return $responseInfo;
     }
@@ -102,7 +102,7 @@ class SmsService
         }
     }
 
-    protected function saveMessage(
+    protected function saveNotification(
         array $responseInfo,
         string $mobile,
         string $message,
@@ -119,7 +119,7 @@ class SmsService
             $data['network_id'] = $responseInfo['networkid'] ?? null;
 
             if (!empty($responseInfo['messageid'])) {
-                Message::updateOrCreate(
+                SmsNotification::updateOrCreate(
                     ['message_id' => $responseInfo['messageid']],
                     $data
                 );
@@ -129,6 +129,6 @@ class SmsService
             $data['message_id'] = $clientSmsId ?? uniqid('msg_', true);
         }
 
-        Message::create($data);
+        SmsNotification::create($data);
     }
 }
