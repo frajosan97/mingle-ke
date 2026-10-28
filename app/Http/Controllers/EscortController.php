@@ -7,7 +7,6 @@ use App\Http\Requests\UpdateLocationRequest;
 use App\Http\Resources\ProfileCardResource;
 use App\Http\Resources\ProfileResource;
 use App\Models\User;
-use App\Services\ConversationService;
 use App\Services\EscortSearchService;
 use App\Services\LocationService;
 use Illuminate\Http\JsonResponse;
@@ -19,7 +18,6 @@ class EscortController extends Controller
 {
     public function __construct(
         private readonly EscortSearchService $search,
-        private readonly ConversationService $conversations,
         private readonly LocationService $locations,
     ) {
     }
@@ -38,92 +36,37 @@ class EscortController extends Controller
             ]);
         }
 
-        [$lat, $lng] = [$coords['lat'], $coords['lng']];
-
-        $query = $this->search->buildQuery($filters, $lat, $lng, $user);
-
-        // Any-distance: pure DB pagination
-        if ($filters['radius'] === null) {
-            $paginator = $this->search->paginateAnyDistance($query, $lat, $lng);
-
-            return Inertia::render('escort/index', [
-                'profiles' => [
-                    'data' => ProfileCardResource::collection($paginator->items())->resolve(),
-                    'links' => $this->search->buildLinks(
-                        $paginator->currentPage(),
-                        $paginator->lastPage(),
-                    ),
-                    'meta' => [
-                        'current_page' => $paginator->currentPage(),
-                        'last_page' => $paginator->lastPage(),
-                        'per_page' => $paginator->perPage(),
-                        'total' => $paginator->total(),
-                        'from' => $paginator->firstItem(),
-                        'to' => $paginator->lastItem(),
-                    ],
-                ],
-                'filters' => $filters,
-            ]);
-        }
-
-        // Radius mode
-        $result = $this->search->paginateWithinRadius(
-            $query,
-            $lat,
-            $lng,
-            (float) $filters['radius'],
-            max(1, (int) $request->input('page', 1)),
+        $results = $this->search->getDiscoverResults(
+            $filters,
+            $coords['lat'],
+            $coords['lng'],
+            $user,
+            (int) $request->input('page', 1)
         );
 
         return Inertia::render('escort/index', [
             'profiles' => [
-                'data' => ProfileCardResource::collection($result['items'])->resolve(),
-                'links' => $this->search->buildLinks($result['page'], $result['last_page']),
-                'meta' => [
-                    'current_page' => $result['page'],
-                    'last_page' => $result['last_page'],
-                    'per_page' => EscortSearchService::PER_PAGE,
-                    'total' => $result['total'],
-                    'from' => $result['from'],
-                    'to' => $result['to'],
-                ],
+                'data' => ProfileCardResource::collection($results['data'])->resolve(),
+                'links' => $results['links'],
+                'meta' => $results['meta'],
             ],
             'filters' => $filters,
         ]);
     }
 
-    /**
-     * Display a single escort profile.
-     */
     public function show(Request $request, User $user): Response
     {
         $me = $request->user();
         $isOwner = $me !== null && $user->id === $me->id;
+        $isBlocked = $me !== null && !$isOwner && ($me->hasBlocked($user) || $me->isBlockedBy($user));
 
-        // Non-owners may only view approved profiles.
         if (!$isOwner) {
-            abort_unless(
-                $user->profile()->approved()->exists(),
-                404,
-                'This profile is not available.',
-            );
+            abort_unless($user->profile()->approved()->exists(), 404, 'This profile is not available.');
         }
+        abort_if($isBlocked, 403);
 
-        // Respect blocks in both directions (never for yourself).
-        if ($me !== null && !$isOwner) {
-            abort_if(
-                $me->hasBlocked($user) || $me->isBlockedBy($user),
-                403,
-            );
-        }
+        $user->loadMissing(['profile', 'reviewsReceived' => fn($q) => $q->latest()->limit(10)]);
 
-        // Load the escort profile (gallery lives here) + recent reviews.
-        $user->loadMissing([
-            'profile',
-            'reviewsReceived' => fn($q) => $q->latest()->limit(10),
-        ]);
-
-        // Fetch 10 random other escorts to show in the desktop sidebar
         $suggestedProfiles = User::with('profile')
             ->where('id', '!=', $user->id)
             ->whereHas('profile', fn($q) => $q->approved())
@@ -132,26 +75,14 @@ class EscortController extends Controller
             ->get();
 
         return Inertia::render('escort/show', [
-            // Detail page uses the full resource
             'profile' => (new ProfileResource($user))->resolve(),
             'isOwner' => $isOwner,
-            'canMessage' => $me !== null
-                && !$isOwner
-                && !$me->hasBlocked($user)
-                && !$me->isBlockedBy($user),
-            'isLiked' => $me !== null
-                && !$isOwner
-                && $me->hasLiked($user),
-
-            // Pass the sidebar profiles, using the card resource for lightweight payload
+            'canMessage' => $me !== null && !$isOwner && !$isBlocked,
+            'isLiked' => $me !== null && !$isOwner && $me->hasLiked($user),
             'suggestedProfiles' => ProfileCardResource::collection($suggestedProfiles)->resolve(),
         ]);
     }
 
-    /**
-     * Record a like from the current user to the given user.
-     * Idempotent — liking twice is a no-op (still returns success).
-     */
     public function like(Request $request, User $user): JsonResponse
     {
         $me = $request->user();
@@ -159,26 +90,17 @@ class EscortController extends Controller
         abort_if($user->id === $me->id, 422, 'You cannot like yourself.');
 
         if ($user->profile()->exists()) {
-            abort_unless(
-                $user->profile()->approved()->exists(),
-                404,
-                'This profile is not available.',
-            );
+            abort_unless($user->profile()->approved()->exists(), 404, 'This profile is not available.');
         }
 
         abort_if($me->hasBlocked($user) || $me->isBlockedBy($user), 403);
 
-        // Idempotent: create the like if it doesn't already exist.
-        $like = $me->likes()->firstOrCreate([
-            'liked_user_id' => $user->id,
-        ]);
+        $like = $me->likes()->firstOrCreate(['liked_user_id' => $user->id]);
 
         return response()->json([
             'success' => true,
             'liked' => true,
-            'message' => $like->wasRecentlyCreated
-                ? 'Profile liked.'
-                : 'Profile already liked.',
+            'message' => $like->wasRecentlyCreated ? 'Profile liked.' : 'Profile already liked.',
             'data' => [
                 'user_id' => $user->id,
                 'liked_at' => $like->created_at?->toIso8601String(),

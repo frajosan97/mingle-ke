@@ -6,194 +6,264 @@ use App\Models\County;
 use App\Models\Town;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
-use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 
 class EscortSearchService
 {
     public const PER_PAGE = 20;
 
-    /** Default ordering — replaces the old client-controlled `sort`. */
-    private const DEFAULT_SORT = 'distance';
+    /** Earth radius in km. */
+    private const EARTH_RADIUS_KM = 6371.0;
+
+    /**
+     * Hard cap on rows fetched in the "within radius" path when the DB
+     * cannot compute distance natively. Guards against pathological queries.
+     */
+    private const MAX_RADIUS_CANDIDATES = 5000;
 
     public function __construct(private readonly GeoService $geo)
     {
     }
 
-    public function buildQuery(array $filters, float $lat, float $lng, ?User $viewer): Builder
-    {
+    public function getDiscoverResults(
+        array $filters,
+        float $lat,
+        float $lng,
+        ?User $viewer,
+        int $page = 1
+    ): array {
+        $query = $this->buildQuery($filters, $lat, $lng, $viewer);
+
+        $paginator = ($filters['radius'] ?? null) === null
+            ? $this->paginateAnyDistance($query, $lat, $lng, $page)
+            : $this->paginateWithinRadius($query, $lat, $lng, (float) $filters['radius'], $page);
+
+        return $this->formatPaginated($paginator, $lat, $lng);
+    }
+
+    public function buildQuery(
+        array $filters,
+        float $lat,
+        float $lng,
+        ?User $viewer
+    ): EloquentBuilder {
         $query = User::query()
             ->with('profile')
             ->whereNotNull('users.lat')
             ->whereNotNull('users.lng');
 
-        $query->where(function (Builder $q) {
-            $q->whereDoesntHave('profile')
-                ->orWhereHas('profile', fn(Builder $q2) => $q2
-                    ->where('is_approved', true)
-                    ->whereNull('deleted_at'));
-        });
+        $this->filterByProfileStatus($query);
 
         if ($viewer) {
             $query->where('users.id', '!=', $viewer->id);
             $this->excludeBlocked($query, $viewer);
         }
 
-        // ── Radius (bounding box) ───────────────────────────────────
-        if (($filters['radius'] ?? null) !== null) {
-            $d = $this->geo->boundingBoxDeltas($lat, $filters['radius']);
-            $query->whereBetween('users.lat', [$lat - $d['lat'], $lat + $d['lat']])
-                ->whereBetween('users.lng', [$lng - $d['lng'], $lng + $d['lng']]);
-        }
-
-        // ── Location (names → FK ids on users) ──────────────────────
-        $countyId = null;
-
-        if (($filters['county'] ?? null) !== null) {
-            $countyId = County::where('name', $filters['county'])->value('id');
-
-            if ($countyId !== null) {
-                $query->where('users.county_id', $countyId);
-            } else {
-                // Unknown county → return no results rather than ignore the filter.
-                $query->whereRaw('1 = 0');
-            }
-        }
-
-        if (($filters['town'] ?? null) !== null) {
-            $townId = Town::query()
-                ->where('name', $filters['town'])
-                ->when($countyId !== null, fn(Builder $q) => $q->where('county_id', $countyId))
-                ->value('id');
-
-            if ($townId !== null) {
-                $query->where('users.town_id', $townId);
-            } else {
-                $query->whereRaw('1 = 0');
-            }
-        }
-
-        // ── Demographics (on users) ─────────────────────────────────
-        if (($filters['age_min'] ?? null) !== null)
-            $query->where('users.age', '>=', $filters['age_min']);
-        if (($filters['age_max'] ?? null) !== null)
-            $query->where('users.age', '<=', $filters['age_max']);
-        if (($filters['gender'] ?? null) !== null)
-            $query->where('users.gender', $filters['gender']);
-
-        // ── Tier (on users) ─────────────────────────────────────────
-        if (($filters['tier'] ?? null) !== null)
-            $query->where('users.tier', $filters['tier']);
-
-        // ── Profile-scoped filters ──────────────────────────────────
+        $this->applyRadiusFilter($query, $filters, $lat, $lng);
+        $countyId = $this->applyCountyFilter($query, $filters);
+        $this->applyTownFilter($query, $filters, $countyId);
+        $this->applyDemographicsFilter($query, $filters);
+        $this->applyTierFilter($query, $filters);
         $this->applyProfileFilters($query, $filters);
 
         return $query;
     }
 
-    public function paginateAnyDistance(Builder $query, float $lat, float $lng): LengthAwarePaginator
-    {
-        // Premium first — and `escort` counts as premium. Then most recently active.
-        $query->orderByRaw($this->priorityOrderSql())
-            ->orderByDesc('users.last_active_at');
-
+    /**
+     * "Any distance" path: premium first, then most-recently active.
+     * Distance is not a sort key here (no radius filter was given),
+     * but is still attached to each returned model for display.
+     */
+    public function paginateAnyDistance(
+        EloquentBuilder $query,
+        float $lat,
+        float $lng,
+        int $page = 1
+    ): LengthAwarePaginator {
         $query->leftJoin('user_profiles', 'user_profiles.user_id', '=', 'users.id')
-            ->select('users.*');
+            ->select('users.*')
+            ->orderByRaw($this->priorityOrderSql())       // premium=0, regular=1, other=2
+            ->orderByDesc('users.last_active_at')
+            ->orderBy('users.id');                         // stable tie-breaker
 
-        $paginator = $query->paginate(self::PER_PAGE)->withQueryString();
-        $paginator->getCollection()->transform(fn(User $u) => $this->appendDistance($u, $lat, $lng));
-
-        return $paginator;
+        return $query->paginate(self::PER_PAGE, ['*'], 'page', $page)->withQueryString();
     }
 
     /**
-     * @return array{items: \Illuminate\Support\Collection, page: int, last_page: int, total: int, from: ?int, to: ?int}
+     * "Within radius" path: premium first, then closest within each tier,
+     * then most-recently active, then id. Paginated by the DB — never
+     * loads the full result set into memory.
      */
-    public function paginateWithinRadius(Builder $query, float $lat, float $lng, float $radius, int $page): array
-    {
-        // Tier-first in SQL so the 500-row window is already priority-biased
-        // before the distance filter trims it down.
-        $profiles = $query->orderByRaw($this->priorityOrderSql())
-            ->limit(500)
-            ->get()
-            ->map(fn(User $u) => $this->appendDistance($u, $lat, $lng))
-            ->filter(fn(User $u) => $u->distance_km <= $radius)
-            ->sortBy([
-                // 1) Premium (incl. escort) first, 2) closest first.
-                fn(User $a, User $b) => $this->priorityRank($a) <=> $this->priorityRank($b),
-                fn(User $a, User $b) => $a->distance_km <=> $b->distance_km,
-            ])
-            ->values();
+    public function paginateWithinRadius(
+        EloquentBuilder $query,
+        float $lat,
+        float $lng,
+        float $radius,
+        int $page = 1
+    ): LengthAwarePaginator {
+        $haversine = $this->haversineSql($lat, $lng);
 
-        $total = $profiles->count();
-        $lastPage = max(1, (int) ceil($total / self::PER_PAGE));
-        $page = min(max(1, $page), $lastPage);
+        // If the DB can compute distance natively we can apply the true
+        // circular filter directly. Otherwise the bounding-box pre-filter
+        // already applied in buildQuery()/applyRadiusFilter() narrows the
+        // scan, and we refine with the haversine expression below.
+        if ($this->supportsNativeDistance()) {
+            $query->whereRaw("{$haversine} <= ?", [$radius]);
+        } else {
+            $query->whereRaw("{$haversine} <= ?", [$radius])
+                ->limit(self::MAX_RADIUS_CANDIDATES); // safety cap for non-native engines
+        }
+
+        $query->leftJoin('user_profiles', 'user_profiles.user_id', '=', 'users.id')
+            ->select('users.*')
+            ->orderByRaw($this->priorityOrderSql())     // premium first
+            ->orderByRaw("{$haversine} ASC")            // then closest within tier
+            ->orderByDesc('users.last_active_at')       // stable tie-breaker
+            ->orderBy('users.id');
+
+        // NOTE: ->limit() interacts with paginate() — Laravel applies its own
+        // limit. When using the safety cap we therefore paginate manually.
+        if ($this->supportsNativeDistance()) {
+            return $query->paginate(self::PER_PAGE, ['*'], 'page', $page)->withQueryString();
+        }
+
+        return $this->paginateCapped($query, $page);
+    }
+
+    /**
+     * Manual pagination for the non-native-distance fallback, where we
+     * cap the candidate set with ->limit(MAX_RADIUS_CANDIDATES).
+     */
+    private function paginateCapped(EloquentBuilder $query, int $page): LengthAwarePaginator
+    {
+        $page = max(1, $page);
+        $offset = ($page - 1) * self::PER_PAGE;
+
+        // Count is bounded by the cap, so this stays cheap.
+        $total = (clone $query)->toBase()->getCountForPagination();
+
+        $items = $query->forPage($page, self::PER_PAGE)->get();
+
+        return new Paginator(
+            $items,
+            $total,
+            self::PER_PAGE,
+            $page,
+            ['path' => request()->url(), 'query' => request()->query()]
+        );
+    }
+
+    private function formatPaginated(LengthAwarePaginator $paginator, float $lat, float $lng): array
+    {
+        $items = $paginator->getCollection()
+            ->map(fn($u) => $this->appendDistance($u, $lat, $lng));
 
         return [
-            'items' => $profiles->slice(($page - 1) * self::PER_PAGE, self::PER_PAGE)->values(),
-            'page' => $page,
-            'last_page' => $lastPage,
-            'total' => $total,
-            'from' => $total ? ($page - 1) * self::PER_PAGE + 1 : null,
-            'to' => $total ? min($page * self::PER_PAGE, $total) : null,
+            'data' => $items->values(),
+            'links' => $paginator->linkCollection()->toArray(),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
         ];
     }
 
-    public function buildLinks(int $current, int $last): array
-    {
-        $links = [['url' => $current > 1 ? '?page=' . ($current - 1) : null, 'label' => '&laquo; Previous', 'active' => false]];
-        for ($i = 1; $i <= $last; $i++) {
-            $links[] = ['url' => '?page=' . $i, 'label' => (string) $i, 'active' => $i === $current];
-        }
-        $links[] = ['url' => $current < $last ? '?page=' . ($current + 1) : null, 'label' => 'Next &raquo;', 'active' => false];
-
-        return $links;
-    }
-
-    public function appendDistance(User $user, float $lat, float $lng): User
+    public function appendDistance($user, float $lat, float $lng)
     {
         $user->distance_km = $this->geo->haversineKm($lat, $lng, (float) $user->lat, (float) $user->lng);
-
         return $user;
     }
 
-    // ------------------------------------------------------------------ //
+    // -----------------------------------------------------------------
+    // Filters
+    // -----------------------------------------------------------------
 
-    /**
-     * Single source of truth for ordering priority.
-     *
-     * Lower number = higher priority (so ascending sort works).
-     * `escort` is treated as premium automatically — both are top tier.
-     * Adjust the keys to match the values stored in `users.tier`.
-     */
-    private function priorityRank(User $user): int
+    private function filterByProfileStatus(EloquentBuilder $query): void
     {
-        // An escort is always premium — treat both as the top band.
-        if (in_array($user->tier, ['escort', 'premium'], true)) {
-            return 0;
+        $query->where(function ($q) {
+            $q->whereDoesntHave('profile')
+                ->orWhereHas('profile', fn($q2) => $q2
+                    ->where('is_approved', true)
+                    ->whereNull('deleted_at'));
+        });
+    }
+
+    private function applyRadiusFilter(EloquentBuilder $query, array $filters, float $lat, float $lng): void
+    {
+        if (($filters['radius'] ?? null) === null) {
+            return;
         }
 
-        return match ($user->tier) {
-            'free' => 1,
-            default => 2,
-        };
+        // Coarse bounding-box pre-filter (rectangle). The true circular
+        // filter is applied in paginateWithinRadius() via haversine.
+        $d = $this->geo->boundingBoxDeltas($lat, (float) $filters['radius']);
+
+        $query->whereBetween('users.lat', [$lat - $d['lat'], $lat + $d['lat']])
+            ->whereBetween('users.lng', [$lng - $d['lng'], $lng + $d['lng']]);
     }
 
-    /**
-     * SQL equivalent of priorityRank(). Returns a CASE expression that
-     * yields 0 for escort/premium and higher numbers for everything else,
-     * so `ORDER BY ... ASC` puts premium users first.
-     */
-    private function priorityOrderSql(): string
+    private function applyCountyFilter(EloquentBuilder $query, array $filters): ?int
     {
-        return "CASE
-            WHEN users.tier IN ('escort', 'premium') THEN 0
-            WHEN users.tier = 'free'                THEN 1
-            ELSE 2
-        END ASC";
+        if (($filters['county'] ?? null) === null) {
+            return null;
+        }
+
+        $countyId = County::where('name', $filters['county'])->value('id');
+
+        if ($countyId !== null) {
+            $query->where('users.county_id', $countyId);
+        } else {
+            $query->whereRaw('1 = 0');
+        }
+
+        return $countyId;
     }
 
-    private function applyProfileFilters(Builder $query, array $filters): void
+    private function applyTownFilter(EloquentBuilder $query, array $filters, ?int $countyId): void
+    {
+        if (($filters['town'] ?? null) === null) {
+            return;
+        }
+
+        $townId = Town::query()
+            ->where('name', $filters['town'])
+            ->when($countyId !== null, fn($q) => $q->where('county_id', $countyId))
+            ->value('id');
+
+        if ($townId !== null) {
+            $query->where('users.town_id', $townId);
+        } else {
+            $query->whereRaw('1 = 0');
+        }
+    }
+
+    private function applyDemographicsFilter(EloquentBuilder $query, array $filters): void
+    {
+        if (($filters['age_min'] ?? null) !== null) {
+            $query->where('users.age', '>=', $filters['age_min']);
+        }
+        if (($filters['age_max'] ?? null) !== null) {
+            $query->where('users.age', '<=', $filters['age_max']);
+        }
+        if (($filters['gender'] ?? null) !== null) {
+            $query->where('users.gender', $filters['gender']);
+        }
+    }
+
+    private function applyTierFilter(EloquentBuilder $query, array $filters): void
+    {
+        if (($filters['tier'] ?? null) !== null) {
+            $query->where('users.tier', $filters['tier']);
+        }
+    }
+
+    private function applyProfileFilters(EloquentBuilder $query, array $filters): void
     {
         $profileFilters = array_filter([
             'ethnicity' => $filters['ethnicity'] ?? null,
@@ -202,13 +272,11 @@ class EscortSearchService
             'outcall' => $filters['outcall'] ?? false,
         ]);
 
-        $has = count($profileFilters) > 0 || ($filters['service'] ?? null);
-
-        if (!$has) {
+        if (count($profileFilters) === 0 && !($filters['service'] ?? null)) {
             return;
         }
 
-        $query->whereHas('profile', function (Builder $q) use ($filters, $profileFilters) {
+        $query->whereHas('profile', function ($q) use ($filters, $profileFilters) {
             foreach ($profileFilters as $col => $val) {
                 $q->where($col, $val);
             }
@@ -218,15 +286,99 @@ class EscortSearchService
         });
     }
 
-    private function excludeBlocked(Builder $query, User $user): void
+    private function excludeBlocked(EloquentBuilder $query, User $user): void
     {
         $blockedIds = DB::table('user_blocks')
-            ->where('blocker_id', $user->id)->pluck('blocked_id')
-            ->merge(DB::table('user_blocks')->where('blocked_id', $user->id)->pluck('blocker_id'))
-            ->unique()->values()->all();
+            ->where('blocker_id', $user->id)
+            ->pluck('blocked_id')
+            ->merge(
+                DB::table('user_blocks')
+                    ->where('blocked_id', $user->id)
+                    ->pluck('blocker_id')
+            )
+            ->unique()
+            ->values()
+            ->all();
 
         if (!empty($blockedIds)) {
             $query->whereNotIn('users.id', $blockedIds);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Ordering / distance helpers
+    // -----------------------------------------------------------------
+
+    /**
+     * Single source of truth for tier priority. Mirrors priorityOrderSql().
+     * Used only where PHP-side ranking is unavoidable (kept for parity).
+     */
+    private function priorityRank($user): int
+    {
+        return match ($user->tier) {
+            'premium' => 0,
+            'regular' => 1,
+            default => 2,
+        };
+    }
+
+    private function priorityOrderSql(): string
+    {
+        return "CASE
+            WHEN users.tier = 'premium' THEN 0
+            WHEN users.tier = 'regular' THEN 1
+            ELSE 2
+        END ASC";
+    }
+
+    /**
+     * SQL haversine expression (km). Works on MySQL/MariaDB/Postgres/SQLite
+     * since it only uses standard math functions.
+     *
+     * If you're on MySQL 8+ with a spatial POINT column you can swap this
+     * for ST_Distance_Sphere() and gain indexability.
+     */
+    private function haversineSql(float $lat, float $lng): string
+    {
+        $lat = (float) $lat;
+        $lng = (float) $lng;
+        $r = self::EARTH_RADIUS_KM;
+
+        // 6371 * acos( cos(radians(:lat)) * cos(radians(lat)) *
+        //             cos(radians(lng) - radians(:lng)) +
+        //             sin(radians(:lat)) * sin(radians(lat)) )
+        return "({$r} * ACOS(
+            LEAST(1, GREATEST(-1,
+                COS(RADIANS({$lat})) * COS(RADIANS(users.lat)) *
+                COS(RADIANS(users.lng) - RADIANS({$lng})) +
+                SIN(RADIANS({$lat})) * SIN(RADIANS(users.lat))
+            ))
+        ))";
+    }
+
+    /**
+     * Whether the current DB driver can compute spatial distance natively.
+     * MySQL 8+ / MariaDB 10.4+ → true; otherwise falls back to the
+     * bounded-candidate manual pagination path.
+     */
+    private function supportsNativeDistance(): bool
+    {
+        $driver = DB::connection()->getDriverName();
+
+        if ($driver !== 'mysql' && $driver !== 'mariadb') {
+            return false;
+        }
+
+        return version_compare($this->dbServerVersion(), '8.0.0', '>=');
+    }
+
+    private function dbServerVersion(): string
+    {
+        try {
+            $row = DB::selectOne('SELECT VERSION() AS v');
+            return (string) ($row->v ?? '0.0.0');
+        } catch (\Throwable) {
+            return '0.0.0';
         }
     }
 }

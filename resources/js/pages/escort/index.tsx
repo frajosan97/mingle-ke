@@ -125,19 +125,8 @@ export default function DiscoverIndex({ profiles, filters, error }: Props) {
 
                             {meta && meta.last_page > 1 && (
                                 <nav className="mt-10 flex flex-wrap items-center justify-center gap-1">
-                                    {profiles.links.map((link, i) => {
-                                        if (!link.url) {
-                                            return (
-                                                <span
-                                                    key={i}
-                                                    className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground/50"
-                                                    dangerouslySetInnerHTML={{
-                                                        __html: link.label,
-                                                    }}
-                                                />
-                                            );
-                                        }
-                                        return (
+                                    {profiles.links.map((link, i) =>
+                                        link.url ? (
                                             <Link
                                                 key={i}
                                                 href={link.url}
@@ -153,8 +142,16 @@ export default function DiscoverIndex({ profiles, filters, error }: Props) {
                                                     __html: link.label,
                                                 }}
                                             />
-                                        );
-                                    })}
+                                        ) : (
+                                            <span
+                                                key={i}
+                                                className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground/50"
+                                                dangerouslySetInnerHTML={{
+                                                    __html: link.label,
+                                                }}
+                                            />
+                                        ),
+                                    )}
                                 </nav>
                             )}
                         </>

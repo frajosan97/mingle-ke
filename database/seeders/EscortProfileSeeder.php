@@ -8,8 +8,7 @@ use Illuminate\Database\Seeder;
 
 class EscortProfileSeeder extends Seeder
 {
-    private const PREMIUM_TARGET = 12;
-    private const REGULAR_TARGET = 12;
+    private const PREMIUM_TARGET = 24;
 
     /**
      * Counties where hourly rates scale up. Everything else uses the
@@ -25,16 +24,8 @@ class EscortProfileSeeder extends Seeder
             ->limit(self::PREMIUM_TARGET)
             ->get();
 
-        $regularUsers = User::whereDoesntHave('profile')
-            ->where('tier', 'regular')
-            ->inRandomOrder()
-            ->limit(self::REGULAR_TARGET)
-            ->get();
-
-        $allUsers = $premiumUsers->concat($regularUsers);
-
-        if ($allUsers->isEmpty()) {
-            $this->command->warn('No users available to seed escort profiles.');
+        if ($premiumUsers->isEmpty()) {
+            $this->command->warn('No premium users available to seed escort profiles.');
             return;
         }
 
@@ -43,13 +34,6 @@ class EscortProfileSeeder extends Seeder
                 'Only %d premium users available (target: %d).',
                 $premiumUsers->count(),
                 self::PREMIUM_TARGET,
-            ));
-        }
-        if ($regularUsers->count() < self::REGULAR_TARGET) {
-            $this->command->warn(sprintf(
-                'Only %d regular users available (target: %d).',
-                $regularUsers->count(),
-                self::REGULAR_TARGET,
             ));
         }
 
@@ -71,9 +55,9 @@ class EscortProfileSeeder extends Seeder
         $statuses = ['online', 'incall', 'outcall'];
 
         // eager-load the town+county so we can read the county name per user
-        $allUsers->load(['town.county']);
+        $premiumUsers->load(['town.county']);
 
-        foreach ($allUsers as $user) {
+        foreach ($premiumUsers as $user) {
             $countyName = $user->town?->county?->name;
             $isPremiumCity = $countyName && in_array($countyName, self::PREMIUM_COUNTIES, true);
 

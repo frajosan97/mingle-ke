@@ -4,7 +4,6 @@ import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { useMemo, useState } from "react";
 import { ChevronRight, Search, Star } from "lucide-react";
 import ProfileCard, { type Profile } from "@/components/discover/profile-card";
-import { FilterSelect } from "@/components/ui/filter-bar";
 
 type Tier = "premium" | "regular";
 type Variant = "section" | "embedded" | "grid";
@@ -35,14 +34,6 @@ const TIER_STYLES: Record<Tier, { badge: string; hoverBorder: string }> = {
         hoverBorder: "hover:border-brand-blue-1 hover:text-brand-blue-1",
     },
 };
-
-type SortKey = "near" | "rating" | "new";
-
-const SORT_OPTIONS = [
-    { value: "near" as const, label: "Near me" },
-    { value: "rating" as const, label: "Top rated" },
-    { value: "new" as const, label: "Newest" },
-];
 
 const containerVariants: Variants = {
     hidden: {},
@@ -85,7 +76,6 @@ export default function EscortsListing({
     emptyDescription,
 }: EscortsListingProps) {
     const styles = TIER_STYLES[tier];
-
     const filtersVisible =
         showFilters !== undefined ? showFilters : variant !== "grid";
     const showHeader = variant === "section";
@@ -97,34 +87,14 @@ export default function EscortsListing({
               : "";
 
     const [query, setQuery] = useState("");
-    const [sort, setSort] = useState<SortKey>("near");
 
+    // Only client-side name search — server order is preserved.
     const filtered = useMemo(() => {
-        let list = Array.isArray(profiles) ? profiles : [];
-
-        if (query.trim()) {
-            const q = query.trim().toLowerCase();
-            list = list.filter((p) => p.name.toLowerCase().includes(q));
-        }
-
-        switch (sort) {
-            case "rating":
-                list = [...list].sort(
-                    (a, b) => (b.ratingAvg ?? 0) - (a.ratingAvg ?? 0),
-                );
-                break;
-            case "near":
-                list = [...list].sort(
-                    (a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0),
-                );
-                break;
-            case "new":
-                list = [...list].sort((a, b) => b.id - a.id);
-                break;
-        }
-
-        return list;
-    }, [profiles, query, sort]);
+        const list = Array.isArray(profiles) ? profiles : [];
+        if (!query.trim()) return list;
+        const q = query.trim().toLowerCase();
+        return list.filter((p) => p.name.toLowerCase().includes(q));
+    }, [profiles, query]);
 
     const handleClick =
         onProfileClick ?? ((p: Profile) => router.visit(`/escorts/${p.id}`));
@@ -185,7 +155,7 @@ export default function EscortsListing({
                     initial="hidden"
                     whileInView="show"
                     viewport={{ once: true, margin: "-40px" }}
-                    className="relative z-30 mb-6 grid grid-cols-1 gap-2 rounded-2xl border border-border bg-card/80 p-3 sm:grid-cols-[1fr_180px]"
+                    className="relative z-30 mb-6 rounded-2xl border border-border bg-card/80 p-3"
                 >
                     <div className="relative">
                         <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -197,16 +167,6 @@ export default function EscortsListing({
                             className="h-[38px] w-full rounded-full border border-border bg-background py-2 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus:border-brand-pink/50 focus:ring-2 focus:ring-brand-pink/20"
                         />
                     </div>
-                    <FilterSelect<SortKey>
-                        options={SORT_OPTIONS}
-                        value={sort}
-                        onChange={(v) => {
-                            if (v) setSort(v);
-                        }}
-                        isSearchable={false}
-                        isClearable={false}
-                        placeholder="Sort"
-                    />
                 </motion.div>
             )}
 
@@ -222,19 +182,15 @@ export default function EscortsListing({
                         {emptyTitle ?? `No ${tier} escorts match those filters`}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                        {emptyDescription ??
-                            "Try a different name or sort order."}
+                        {emptyDescription ?? "Try a different name."}
                     </p>
-                    {filtersVisible && (
+                    {filtersVisible && query && (
                         <button
                             type="button"
-                            onClick={() => {
-                                setQuery("");
-                                setSort("near");
-                            }}
+                            onClick={() => setQuery("")}
                             className="mt-4 rounded-full bg-gradient-brand px-4 py-2 text-xs font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong"
                         >
-                            Reset filters
+                            Clear search
                         </button>
                     )}
                 </motion.div>
