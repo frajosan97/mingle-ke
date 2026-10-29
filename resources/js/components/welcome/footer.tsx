@@ -10,6 +10,7 @@ import {
     Phone,
 } from "lucide-react";
 import { FOOTER_LINKS, SOCIALS } from "./data";
+import AppLogo from "../app-logo";
 
 export default function Footer() {
     return (
@@ -18,14 +19,8 @@ export default function Footer() {
                 <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-5">
                     {/* Brand + trust */}
                     <div className="lg:col-span-2">
-                        <Link href="/" className="flex items-center gap-2.5">
-                            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand">
-                                <Heart className="h-5 w-5 fill-white text-white" />
-                            </span>
-                            <span className="text-base font-extrabold tracking-tight text-foreground">
-                                Mingle
-                                <span className="text-gradient-brand">KE</span>
-                            </span>
+                        <Link href="/">
+                            <AppLogo />
                         </Link>
 
                         <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted-foreground">

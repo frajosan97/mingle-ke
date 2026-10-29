@@ -3,6 +3,7 @@ import { Link } from "@inertiajs/react";
 import { useEffect, useState } from "react";
 import { Heart, MessageCircle } from "lucide-react";
 import { login, register } from "@/routes";
+import AppLogo from "../app-logo";
 
 type HeaderProps = {
     user?: { id: number } | null;
@@ -28,14 +29,8 @@ export default function Header({ user }: HeaderProps) {
                     scrolled ? "container-page" : "nav-floating"
                 }`}
             >
-                <Link href="/" className="flex items-center gap-2.5">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow-pink">
-                        <Heart className="h-5 w-5 fill-white text-white" />
-                    </span>
-                    <span className="text-base font-extrabold tracking-tight text-foreground">
-                        Mingle
-                        <span className="text-gradient-brand">KE</span>
-                    </span>
+                <Link href="/">
+                    <AppLogo />
                 </Link>
 
                 <div className="hidden items-center gap-2 md:flex">
