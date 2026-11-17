@@ -407,7 +407,7 @@ function EmptyState() {
             </p>
             <Link
                 href="/coins"
-                className="mt-5 inline-flex items-center gap-2 rounded-full bg-gradient-brand px-5 py-2.5 text-sm font-semibold text-white shadow-glow-pink transition-all hover:shadow-glow-pink-strong"
+                className="mt-5 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-glow-pink transition-all hover:shadow-glow-pink-strong"
             >
                 Buy coins
                 <ChevronRight className="h-4 w-4" />

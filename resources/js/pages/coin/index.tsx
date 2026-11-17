@@ -4,12 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Copy } from "lucide-react";
 
-import Header from "@/components/coin/Header";
-import AccountCards from "@/components/coin/AccountCards";
-import RechargeHeader from "@/components/coin/RechargeHeader";
-import PackageGrid from "@/components/coin/PackageGrid";
-import CheckoutRow from "@/components/coin/CheckoutRow";
-import PromoBanner from "@/components/coin/PromoBanner";
+import Header from "@/components/partials/coin/Header";
+import AccountCards from "@/components/partials/coin/AccountCards";
+import RechargeHeader from "@/components/partials/coin/RechargeHeader";
+import PackageGrid from "@/components/partials/coin/PackageGrid";
+import CheckoutRow from "@/components/partials/coin/CheckoutRow";
+import PromoBanner from "@/components/partials/coin/PromoBanner";
 import {
     COIN_PACKAGES,
     FALLBACK_INVITE_CODE,

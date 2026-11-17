@@ -327,7 +327,7 @@ export default function Profile({
                                 <Button
                                     disabled={processing}
                                     data-test="update-profile-button"
-                                    className="rounded-full bg-gradient-brand px-8 py-2 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
+                                    className="rounded-full bg-primary px-8 py-2 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
                                 >
                                     Save changes
                                 </Button>
@@ -341,7 +341,7 @@ export default function Profile({
                     <div className="border-t border-border pt-8">
                         <div className="overflow-hidden rounded-2xl border border-brand-pink/30 bg-gradient-to-br from-brand-pink/5 via-card to-brand-orange/5 p-6 sm:p-8">
                             <div className="flex items-start gap-4">
-                                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-brand text-white shadow-glow-pink">
+                                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-white shadow-glow-pink">
                                     <Sparkles className="h-6 w-6" />
                                 </span>
                                 <div className="min-w-0 flex-1">
@@ -379,7 +379,7 @@ export default function Profile({
                                     <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
                                         <Link
                                             href="/escort/onboarding"
-                                            className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-brand px-6 py-2.5 text-sm font-semibold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
+                                            className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
                                         >
                                             Get started
                                             <ChevronRight className="h-4 w-4" />

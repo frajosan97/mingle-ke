@@ -14,7 +14,7 @@ export type Props = {
 const EmptyState = () => {
     return (
         <div className="flex flex-col items-center justify-center p-10 text-center">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-brand-soft ring-1 ring-border/50">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary-soft ring-1 ring-border/50">
                 <KeyRound className="h-7 w-7 text-brand-pink" />
             </div>
             <p className="text-sm font-semibold text-foreground">

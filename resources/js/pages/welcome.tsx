@@ -1,15 +1,15 @@
 import { Head, usePage } from "@inertiajs/react";
-import Header from "@/components/welcome/header";
-import Hero from "@/components/welcome/hero";
-import Stats from "@/components/welcome/stats";
-import Features from "@/components/welcome/features";
-import Testimonials from "@/components/welcome/testimonials";
-import CTA from "@/components/welcome/cta";
-import Footer from "@/components/welcome/footer";
-import EscortsListing from "@/components/discover/escorts-listing";
-import type { Profile } from "@/components/discover/profile-card";
-import type { StatItem } from "@/components/welcome/data";
+import Header from "@/layouts/guest/guest-header";
+import Hero from "@/components/partials/welcome/hero";
+import Stats from "@/components/partials/welcome/stats";
+import Features from "@/components/partials/welcome/features";
+import Testimonials from "@/components/partials/welcome/testimonials";
+import CTA from "@/components/partials/welcome/cta";
+import Footer from "@/layouts/guest/guest-footer";
+import type { StatItem } from "@/components/partials/welcome/data";
 import type { Auth } from "@/types";
+import EscortsListing from "@/components/partials/discover/escorts-listing";
+import { Profile } from "@/components/partials/discover/profile-card";
 
 interface WelcomeProps {
     auth: { user: Auth["user"] | null };
@@ -26,10 +26,9 @@ export default function Welcome() {
         <>
             <Head title="MingleKE — Meet Someone Near You" />
 
-            <div className="min-h-screen bg-background text-foreground">
-                <Header user={auth.user} />
-                <Hero />
-                <Stats items={stats} />
+            <Hero />
+
+            {/* <Stats items={stats} />
 
                 <EscortsListing
                     id="premium"
@@ -52,9 +51,7 @@ export default function Welcome() {
                 />
 
                 <Testimonials />
-                <CTA />
-                <Footer />
-            </div>
+                <CTA /> */}
         </>
     );
 }

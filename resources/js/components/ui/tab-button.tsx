@@ -29,7 +29,7 @@ export function TabButton({
                 <span
                     className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
                         active
-                            ? "bg-gradient-brand-soft text-brand-pink"
+                            ? "bg-primary-soft text-brand-pink"
                             : "bg-accent text-muted-foreground"
                     }`}
                 >

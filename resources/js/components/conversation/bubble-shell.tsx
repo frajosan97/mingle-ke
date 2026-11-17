@@ -27,7 +27,7 @@ export default function BubbleShell({
                     "relative max-w-[75%] text-sm md:max-w-[65%]",
                     // Outgoing: brand gradient. Incoming: card surface.
                     mine
-                        ? "rounded-2xl rounded-tr-md bg-gradient-brand text-white shadow-md ring-1 ring-black/5"
+                        ? "rounded-2xl rounded-tr-md bg-primary text-white shadow-md ring-1 ring-black/5"
                         : "rounded-2xl rounded-tl-md border border-border/60 bg-card text-card-foreground shadow-sm",
                     // Bare mode: media takes the full bubble; timestamp
                     // overlay sits on top of the media (see MessageBubble).

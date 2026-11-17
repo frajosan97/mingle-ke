@@ -3,24 +3,21 @@ import { Head, Link, usePage } from "@inertiajs/react";
 import { useMemo, useState } from "react";
 import {
     BadgeCheck,
-    Check,
-    Compass,
     Grid3x3,
     Heart,
     MapPin,
     MoreHorizontal,
     Play,
     Share2,
-    Sparkles,
     Star,
     X,
 } from "lucide-react";
 import { useLike } from "@/hooks/use-like";
 import { useStartChat } from "@/hooks/use-start-chat";
 import { useShare } from "@/hooks/use-share";
-import SuggestedSidebar from "@/components/discover/suggested-sidebar";
 import { Stat } from "@/components/ui/stat";
 import { TabButton } from "@/components/ui/tab-button";
+import SuggestedSidebar from "@/components/partials/discover/suggested-sidebar";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -163,7 +160,7 @@ export default function EscortShow({
                                         className="h-full w-full object-cover"
                                     />
                                 ) : (
-                                    <div className="flex h-full w-full items-center justify-center bg-gradient-brand-soft text-3xl font-bold text-brand-pink">
+                                    <div className="flex h-full w-full items-center justify-center bg-primary-soft text-3xl font-bold text-brand-pink">
                                         {profile.name.charAt(0).toUpperCase()}
                                     </div>
                                 )}
@@ -227,7 +224,7 @@ export default function EscortShow({
                                         </span>
                                     )}
                                     {esc?.isFeatured && (
-                                        <span className="rounded-full border border-brand-pink/30 bg-gradient-brand-soft px-2 py-0.5 text-[11px] font-semibold text-brand-pink">
+                                        <span className="rounded-full border border-brand-pink/30 bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-brand-pink">
                                             Featured
                                         </span>
                                     )}
@@ -249,7 +246,7 @@ export default function EscortShow({
                                         <>
                                             <Link
                                                 href={`/escorts/${profile.id}/edit`}
-                                                className="rounded-full bg-gradient-brand px-5 py-1.5 text-sm font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift active:scale-95"
+                                                className="rounded-full bg-primary px-5 py-1.5 text-sm font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift active:scale-95"
                                             >
                                                 Edit Profile
                                             </Link>
@@ -267,7 +264,7 @@ export default function EscortShow({
                                                     onClick={() =>
                                                         startChat(profile.id)
                                                     }
-                                                    className="rounded-full bg-gradient-brand px-6 py-1.5 text-sm font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift active:scale-95"
+                                                    className="rounded-full bg-primary px-6 py-1.5 text-sm font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift active:scale-95"
                                                 >
                                                     Message
                                                 </button>
@@ -289,7 +286,7 @@ export default function EscortShow({
                                                     }
                                                     className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition active:scale-95 ${
                                                         isCurrentlyLiked
-                                                            ? "border border-brand-pink/40 bg-gradient-brand-soft text-brand-pink"
+                                                            ? "border border-brand-pink/40 bg-primary-soft text-brand-pink"
                                                             : "border border-border bg-card text-foreground hover:bg-accent"
                                                     }`}
                                                 >
@@ -376,7 +373,7 @@ export default function EscortShow({
                                         onClick={() => setSortBy("latest")}
                                         className={`rounded-full px-3 py-1.5 transition ${
                                             sortBy === "latest"
-                                                ? "bg-gradient-brand-soft text-brand-pink"
+                                                ? "bg-primary-soft text-brand-pink"
                                                 : "text-muted-foreground hover:text-foreground"
                                         }`}
                                     >
@@ -386,7 +383,7 @@ export default function EscortShow({
                                         onClick={() => setSortBy("popular")}
                                         className={`rounded-full px-3 py-1.5 transition ${
                                             sortBy === "popular"
-                                                ? "bg-gradient-brand-soft text-brand-pink"
+                                                ? "bg-primary-soft text-brand-pink"
                                                 : "text-muted-foreground hover:text-foreground"
                                         }`}
                                     >
@@ -414,7 +411,7 @@ export default function EscortShow({
                                         />
 
                                         {i === 0 && (
-                                            <span className="absolute left-2 top-2 rounded-full bg-gradient-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-glow-pink">
+                                            <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-glow-pink">
                                                 Pinned
                                             </span>
                                         )}

@@ -291,7 +291,7 @@ export default function EscortOnboarding({ profile }: Props) {
                     </Link>
 
                     <div className="flex items-start gap-4">
-                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-brand text-white shadow-glow-pink">
+                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-white shadow-glow-pink">
                             <Sparkles className="h-6 w-6" />
                         </span>
                         <div>
@@ -484,7 +484,7 @@ export default function EscortOnboarding({ profile }: Props) {
                                             className={cn(
                                                 "shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
                                                 allSelected
-                                                    ? "border-brand-pink bg-gradient-brand-soft text-brand-pink"
+                                                    ? "border-brand-pink bg-primary-soft text-brand-pink"
                                                     : "border-border bg-card text-foreground hover:border-brand-pink/40",
                                             )}
                                         >
@@ -517,7 +517,7 @@ export default function EscortOnboarding({ profile }: Props) {
                                                     className={cn(
                                                         "rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all",
                                                         active
-                                                            ? "border-brand-pink bg-gradient-brand-soft text-brand-pink"
+                                                            ? "border-brand-pink bg-primary-soft text-brand-pink"
                                                             : "border-border bg-card text-muted-foreground hover:border-brand-pink/40 hover:text-foreground",
                                                     )}
                                                 >
@@ -759,7 +759,7 @@ export default function EscortOnboarding({ profile }: Props) {
                                     {progress && (
                                         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                                             <div
-                                                className="h-full bg-gradient-brand transition-all"
+                                                className="h-full bg-primary transition-all"
                                                 style={{
                                                     width: `${progress.percentage}%`,
                                                 }}
@@ -778,7 +778,7 @@ export default function EscortOnboarding({ profile }: Props) {
                                 <Button
                                     type="submit"
                                     disabled={processing}
-                                    className="rounded-full bg-gradient-brand px-8 py-2.5 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
+                                    className="rounded-full bg-primary px-8 py-2.5 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
                                 >
                                     {isEditing
                                         ? "Save changes"

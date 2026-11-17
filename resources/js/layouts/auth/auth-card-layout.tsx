@@ -1,6 +1,5 @@
-// resources/js/layouts/auth/auth-card-layout.tsx
-import { Link, usePage } from "@inertiajs/react";
-import type { AuthLayoutProps } from "@/types";
+import { Link } from "@inertiajs/react";
+import type { PropsWithChildren } from "react";
 import AppLogo from "@/components/app-logo";
 import {
     Card,
@@ -10,92 +9,43 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import { home } from "@/routes";
-import { Sparkles } from "lucide-react";
-
-const GRID_MASK =
-    "radial-gradient(ellipse at center, black 20%, transparent 70%)";
-
-function AmbientBackground() {
-    return (
-        <>
-            <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 overflow-hidden"
-            >
-                <div className="orb orb-pink absolute -left-32 -top-32 h-[600px] w-[600px] opacity-30" />
-                <div
-                    className="orb orb-orange absolute -right-32 top-1/4 h-[600px] w-[600px] opacity-30"
-                    style={{ animationDelay: "1.5s" }}
-                />
-                <div
-                    className="orb orb-gold absolute -bottom-32 left-1/3 h-[500px] w-[500px] opacity-20"
-                    style={{ animationDelay: "3s" }}
-                />
-            </div>
-
-            <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 opacity-[0.04] [background-image:linear-gradient(black_1px,transparent_1px),linear-gradient(90deg,black_1px,transparent_1px)] dark:[background-image:linear-gradient(white_1px,transparent_1px),linear-gradient(90deg,white_1px,transparent_1px)]"
-                style={{
-                    backgroundSize: "48px 48px",
-                    maskImage: GRID_MASK,
-                    WebkitMaskImage: GRID_MASK,
-                }}
-            />
-        </>
-    );
-}
 
 export default function AuthCardLayout({
     children,
     title,
     description,
-}: AuthLayoutProps) {
-    const { name } = usePage().props;
-
+}: PropsWithChildren<{
+    name?: string;
+    title?: string;
+    description?: string;
+}>) {
     return (
-        <div className="relative isolate flex min-h-dvh w-full flex-col items-center justify-center overflow-x-hidden bg-background p-6 md:p-10">
-            <AmbientBackground />
+        <div className="relative flex min-h-svh flex-col items-center justify-center bg-background font-sans text-foreground selection:bg-destructive selection:text-destructive-foreground antialiased transition-colors duration-300 p-6 md:p-10">
+            {/* Decorative Blobs */}
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                <div className="absolute -top-40 -right-40 h-[500px] w-[500px] rounded-full bg-brand-red/5 dark:bg-brand-red/10 blur-[120px]" />
+                <div className="absolute bottom-0 -left-40 h-[500px] w-[500px] rounded-full bg-primary/5 dark:bg-primary/10 blur-[100px]" />
+            </div>
 
             <div className="relative z-10 flex w-full max-w-md flex-col gap-6">
-                <header className="flex justify-center">
-                    <Link
-                        href={home()}
-                        className="flex items-center gap-2.5 self-center rounded-md transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                        aria-label={`${name ?? "MingleKE"} — go to homepage`}
-                    >
-                        <AppLogo />
-                    </Link>
-                </header>
+                <Link
+                    href={home()}
+                    className="flex items-center justify-center self-center transition-opacity hover:opacity-80"
+                >
+                    <AppLogo className="h-12 w-auto sm:h-14" />
+                </Link>
 
-                <main className="relative">
-                    <div
-                        aria-hidden="true"
-                        className="absolute -inset-0.5 rounded-2xl bg-gradient-brand opacity-20 blur-lg"
-                    />
-                    <Card className="relative rounded-2xl border-border/60 bg-card/95 shadow-2xl backdrop-blur-xl">
-                        <CardHeader className="space-y-2 px-8 pt-8 pb-0 text-center">
-                            {title && (
-                                <CardTitle className="text-2xl font-bold tracking-tight text-balance text-foreground">
-                                    {title}
-                                </CardTitle>
-                            )}
-                            {description && (
-                                <CardDescription className="text-sm text-pretty text-muted-foreground">
-                                    {description}
-                                </CardDescription>
-                            )}
-                        </CardHeader>
-                        <CardContent className="px-8 py-6">
-                            {children}
-                        </CardContent>
-                    </Card>
-                </main>
-
-                <footer className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                    <Sparkles className="h-3.5 w-3.5 text-brand-gold" />
-                    <span>Trusted by 12,000+ members across Kenya</span>
-                </footer>
+                <Card className="rounded-2xl border-none bg-card/95 shadow-[0_8px_40px_rgb(0,0,0,0.06)] dark:shadow-black/40 backdrop-blur-xl">
+                    <CardHeader className="px-10 pt-8 pb-0 text-center">
+                        <CardTitle className="text-xl font-extrabold tracking-tight">
+                            {title}
+                        </CardTitle>
+                        <CardDescription className="text-muted-foreground">
+                            {description}
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="px-10 py-8">{children}</CardContent>
+                </Card>
             </div>
         </div>
     );

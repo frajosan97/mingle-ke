@@ -93,7 +93,7 @@ function TwoFactorSetupStep({
 
                     {/* Action Button */}
                     <Button
-                        className="w-full rounded-full bg-gradient-brand px-6 py-2.5 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
+                        className="w-full rounded-full bg-primary px-6 py-2.5 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
                         onClick={onNextStep}
                     >
                         {buttonText}
@@ -177,7 +177,7 @@ function TwoFactorVerificationStep({
                         </Button>
                         <Button
                             type="submit"
-                            className="flex-1 rounded-full bg-gradient-brand text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong disabled:opacity-70"
+                            className="flex-1 rounded-full bg-primary text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong disabled:opacity-70"
                             disabled={
                                 processing || code.length < OTP_MAX_LENGTH
                             }
@@ -290,7 +290,7 @@ export default function TwoFactorSetupModal({
             <DialogContent className="max-w-[420px] p-6 sm:rounded-2xl">
                 <DialogHeader className="flex flex-col items-center justify-center space-y-3 pb-2 text-center">
                     {/* Branded Icon Badge */}
-                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-brand-soft ring-1 ring-brand-pink/20">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-soft ring-1 ring-brand-pink/20">
                         {twoFactorEnabled ? (
                             <ShieldCheck className="h-7 w-7 text-brand-pink" />
                         ) : (

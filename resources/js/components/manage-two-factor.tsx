@@ -123,7 +123,7 @@ export default function ManageTwoFactor(props: Props) {
                             {hasSetupData ? (
                                 <Button
                                     onClick={() => setShowSetupModal(true)}
-                                    className="rounded-full bg-gradient-brand px-6 text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
+                                    className="rounded-full bg-primary px-6 text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
                                 >
                                     <ShieldCheck className="mr-2 h-4 w-4" />
                                     Continue Setup
@@ -137,7 +137,7 @@ export default function ManageTwoFactor(props: Props) {
                                         <Button
                                             type="submit"
                                             disabled={processing}
-                                            className="rounded-full bg-gradient-brand px-6 text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
+                                            className="rounded-full bg-primary px-6 text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
                                         >
                                             Enable 2FA
                                         </Button>

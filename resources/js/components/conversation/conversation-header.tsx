@@ -68,7 +68,7 @@ export default function ConversationHeader({
                 </Link>
 
                 <div className="relative shrink-0">
-                    <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gradient-brand text-sm font-semibold text-white shadow-glow-pink/40">
+                    <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-white shadow-glow-pink/40">
                         {avatarUrl ? (
                             <img
                                 src={avatarUrl}

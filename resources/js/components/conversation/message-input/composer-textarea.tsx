@@ -93,7 +93,7 @@ export default function ComposerTextarea({
                     type="submit"
                     aria-label="Send message"
                     disabled={disabled}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift active:scale-95 disabled:opacity-50"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift active:scale-95 disabled:opacity-50"
                 >
                     <Send className="h-[19px] w-[19px]" />
                 </button>

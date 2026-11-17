@@ -140,7 +140,7 @@ export default function Register({ passwordRules }: Props) {
                             {/* Submit */}
                             <Button
                                 type="submit"
-                                className="mt-2 w-full rounded-full bg-gradient-brand px-6 py-2.5 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong disabled:opacity-70"
+                                className="mt-2 w-full rounded-full bg-primary px-6 py-2.5 text-sm font-bold text-primary-foreground shadow-glow-pink transition-all hover:scale-[1.02] hover:bg-primary/90 hover:shadow-glow-pink-strong disabled:opacity-70"
                                 tabIndex={5}
                                 data-test="register-user-button"
                             >

@@ -398,7 +398,7 @@ export default function ConversationList({ activeId, query = "" }: Props) {
     if (conversations.length === 0) {
         return (
             <div className="px-4 py-8 text-center">
-                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-brand-soft">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary-soft">
                     <Compass className="h-6 w-6 text-brand-pink" />
                 </div>
 
@@ -408,7 +408,7 @@ export default function ConversationList({ activeId, query = "" }: Props) {
 
                 <Link
                     href="/discover"
-                    className="inline-flex items-center gap-1.5 rounded-full bg-gradient-brand px-4 py-2 text-xs font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift"
                 >
                     <Compass className="h-3.5 w-3.5" />
                     Discover profiles
@@ -449,11 +449,11 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                                 "relative flex items-center gap-3 px-4 py-3 transition-colors",
                                 "hover:bg-accent/50",
                                 active &&
-                                    "bg-gradient-brand-soft before:absolute before:inset-y-1 before:left-0 before:w-1 before:rounded-r-full before:bg-gradient-brand",
+                                    "bg-primary-soft before:absolute before:inset-y-1 before:left-0 before:w-1 before:rounded-r-full before:bg-primary",
                             )}
                         >
                             <div className="relative shrink-0">
-                                <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-gradient-brand text-sm font-semibold text-white">
+                                <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-white">
                                     {conversation.avatarUrl ? (
                                         <img
                                             src={conversation.avatarUrl}
@@ -522,7 +522,7 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                                     </div>
 
                                     {conversation.unread > 0 && (
-                                        <span className="relative ml-2 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-gradient-brand px-1.5 text-[11px] font-semibold text-white shadow-glow-pink/40">
+                                        <span className="relative ml-2 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-white shadow-glow-pink/40">
                                             {conversation.unread}
                                         </span>
                                     )}

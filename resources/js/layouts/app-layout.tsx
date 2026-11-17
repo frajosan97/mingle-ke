@@ -16,7 +16,7 @@ import ConversationList from "@/components/conversation/conversation-list";
 import PushNotifications from "@/components/push-notifications";
 import { OnlineStatusProvider } from "@/hooks/use-app-online-status";
 import { CoinsProvider } from "@/contexts/coins-context";
-import TopUpModal from "@/components/billing/top-up-modal";
+import TopUpModal from "@/components/modals/top-up-modal";
 
 interface Props extends PropsWithChildren {
     showInbox?: boolean;
@@ -119,7 +119,7 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                                         className={cn(
                                             "group relative flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-300",
                                             item.active
-                                                ? "bg-gradient-brand text-white shadow-glow-pink"
+                                                ? "bg-primary text-white shadow-glow-pink"
                                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
                                         )}
                                     >
@@ -132,7 +132,7 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                                             </span>
                                         )}
                                         {item.active && (
-                                            <span className="absolute -left-[13px] h-6 w-1 rounded-r-full bg-gradient-brand" />
+                                            <span className="absolute -left-[13px] h-6 w-1 rounded-r-full bg-primary" />
                                         )}
                                     </Link>
                                 );
@@ -147,7 +147,7 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                             >
                                 <div
                                     className={cn(
-                                        "flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gradient-brand text-sm font-semibold text-white shadow-glow-pink ring-2 ring-transparent transition-all",
+                                        "flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-white shadow-glow-pink ring-2 ring-transparent transition-all",
                                         isProfileActive &&
                                             "shadow-glow-pink-strong ring-brand-pink",
                                     )}
@@ -178,7 +178,7 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                             <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-border px-4">
                                 <h1 className="flex items-center gap-2 text-lg font-semibold text-foreground">
                                     Messages
-                                    <span className="rounded-full bg-gradient-brand-soft px-2 py-0.5 text-xs font-medium text-brand-pink">
+                                    <span className="rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-brand-pink">
                                         Inbox
                                     </span>
                                 </h1>

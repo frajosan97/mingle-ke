@@ -15,8 +15,8 @@ export default function ConversationEmpty() {
             <div className="relative z-10 flex flex-col items-center gap-6">
                 {/* Icon medallion with breathing glow */}
                 <div className="relative">
-                    <div className="absolute inset-0 rounded-full bg-gradient-brand blur-2xl opacity-40 animate-breathe" />
-                    <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-gradient-brand shadow-glow-pink breathe">
+                    <div className="absolute inset-0 rounded-full bg-primary blur-2xl opacity-40 animate-breathe" />
+                    <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-primary shadow-glow-pink breathe">
                         <MessageCircle
                             className="h-12 w-12 text-white"
                             strokeWidth={1.75}

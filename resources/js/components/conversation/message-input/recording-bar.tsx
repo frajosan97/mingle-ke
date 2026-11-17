@@ -38,7 +38,7 @@ export default function RecordingBar({ seconds, onCancel, onStop }: Props) {
                 type="button"
                 onClick={onStop}
                 aria-label="Send voice message"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-white shadow-glow-pink transition hover:shadow-glow-pink-strong"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-glow-pink transition hover:shadow-glow-pink-strong"
             >
                 <Send className="h-[18px] w-[18px]" />
             </button>

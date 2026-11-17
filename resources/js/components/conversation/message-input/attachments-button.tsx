@@ -88,7 +88,7 @@ export default function AttachmentsButton({
                             onClick={() => trigger(type)}
                             className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-accent"
                         >
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-white">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white">
                                 <Icon className="h-5 w-5" />
                             </span>
                             {label}

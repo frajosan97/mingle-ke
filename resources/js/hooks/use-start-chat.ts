@@ -17,13 +17,10 @@ export function useStartChat() {
 
         // 2. Prevent users from messaging themselves
         if (auth.user.id === targetUserId) {
-            // Handle the case where the user tries to message themselves
             return;
         }
 
         // 3. Navigate to the chat route.
-        // Adjust this URL to match your actual Laravel route for starting a conversation.
-        // Usually, this is a GET route that finds or creates the conversation and redirects to it.
         router.visit(`/messages/new?to=${targetUserId}`);
     };
 

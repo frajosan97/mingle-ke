@@ -122,7 +122,7 @@ export default function PasskeyRegistration({ onSuccess }: Props) {
                 <Button
                     type="submit"
                     disabled={isLoading || !name.trim()}
-                    className="rounded-full bg-gradient-brand px-6 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong disabled:opacity-70"
+                    className="rounded-full bg-primary px-6 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong disabled:opacity-70"
                 >
                     {isLoading ? "Registering…" : "Register Passkey"}
                 </Button>

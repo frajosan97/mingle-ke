@@ -1,8 +1,9 @@
 // resources/js/pages/discover/index.tsx
 import { Head, Link, router } from "@inertiajs/react";
-import type { Profile } from "@/components/discover/profile-card";
-import EscortsListing from "@/components/discover/escorts-listing";
 import { FilterBar, type DiscoverFilters } from "@/components/ui/filter-bar";
+import { Profile } from "@/components/partials/discover/profile-card";
+import EscortsListing from "@/components/partials/discover/escorts-listing";
+
 
 interface Paginated<T> {
     data: T[];
@@ -29,7 +30,7 @@ export default function DiscoverIndex({ profiles, filters, error }: Props) {
             <>
                 <Head title="Discover" />
                 <div className="flex h-full flex-col items-center justify-center gap-5 px-6 text-center">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-brand-soft">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary-soft">
                         <span className="text-4xl">🔍</span>
                     </div>
                     <p className="max-w-xs text-base text-muted-foreground">
@@ -38,7 +39,7 @@ export default function DiscoverIndex({ profiles, filters, error }: Props) {
                     <div className="flex gap-3">
                         <button
                             onClick={() => router.get("/discover")}
-                            className="rounded-full bg-gradient-brand px-5 py-2 text-sm font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift"
+                            className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift"
                         >
                             Refresh
                         </button>
@@ -96,7 +97,7 @@ export default function DiscoverIndex({ profiles, filters, error }: Props) {
 
                     {isEmpty ? (
                         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-brand-soft">
+                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-soft">
                                 <span className="text-3xl">🔍</span>
                             </div>
                             <p className="max-w-xs text-sm text-muted-foreground">
@@ -106,7 +107,7 @@ export default function DiscoverIndex({ profiles, filters, error }: Props) {
                             <button
                                 type="button"
                                 onClick={() => router.get("/discover")}
-                                className="rounded-full bg-gradient-brand px-5 py-2 text-sm font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong"
+                                className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong"
                             >
                                 Clear all filters
                             </button>
@@ -135,7 +136,7 @@ export default function DiscoverIndex({ profiles, filters, error }: Props) {
                                                 className={
                                                     "rounded-lg border px-3 py-1.5 text-xs font-medium transition " +
                                                     (link.active
-                                                        ? "border-brand-pink bg-gradient-brand-soft text-brand-pink"
+                                                        ? "border-brand-pink bg-primary-soft text-brand-pink"
                                                         : "border-border bg-card text-foreground hover:bg-accent")
                                                 }
                                                 dangerouslySetInnerHTML={{

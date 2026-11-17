@@ -12,7 +12,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -48,9 +47,13 @@ use Rappasoft\LaravelAuthenticationLog\Traits\AuthenticationLoggable;
  * @property int $coins
  * @property float|null $lat
  * @property float|null $lng
+ * @property int|null $county_id
+ * @property int|null $town_id
  * @property string|null $area
  * @property bool $is_verified
+ * @property bool $is_online
  * @property Carbon|null $last_active_at
+ * @property Carbon|null $last_seen_at
  * @property string|null $remember_token
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -58,7 +61,6 @@ use Rappasoft\LaravelAuthenticationLog\Traits\AuthenticationLoggable;
  *
  * @property-read string|null $avatar_url
  * @property-read UserProfile|null $profile
- * @property-read UserProfile|null $photos
  * @property-read \Illuminate\Database\Eloquent\Collection<int, UserLike> $likes
  * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReview> $reviewsWritten
  * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReview> $reviewsReceived
@@ -76,6 +78,9 @@ use Rappasoft\LaravelAuthenticationLog\Traits\AuthenticationLoggable;
  * @property-read \Illuminate\Database\Eloquent\Collection<int, CoinTransaction> $coinPurchases
  * @property-read \Illuminate\Database\Eloquent\Collection<int, CoinTransaction> $completedCoinPurchases
  * @property-read \Illuminate\Database\Eloquent\Collection<int, CoinTransaction> $pendingCoinPurchases
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, EscortListingPayment> $escortListingPayments
+ * @property-read EscortListingPayment|null $latestEscortPayment
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, PhoneReveal> $phoneReveals
  */
 #[Fillable([
     'name',
@@ -94,9 +99,13 @@ use Rappasoft\LaravelAuthenticationLog\Traits\AuthenticationLoggable;
     'coins',
     'lat',
     'lng',
+    'county_id',
+    'town_id',
     'area',
     'is_verified',
+    'is_online',
     'last_active_at',
+    'last_seen_at',
 ])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
@@ -108,19 +117,10 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     use HasPushSubscriptions;
     use SoftDeletes;
 
-    /**
-     * Coins granted once on account creation (direct, Google, Facebook, etc.).
-     */
+    /** Coins granted once on account creation. */
     public const WELCOME_COINS = 5;
 
-    /**
-     * Attributes automatically appended to the model's array/JSON form.
-     *
-     * @var array<int, string>
-     */
-    protected $appends = [
-        'avatar_url',
-    ];
+    protected $appends = ['avatar_url'];
 
     // ==================================================================
     // BOOT HOOKS
@@ -129,13 +129,8 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     protected static function booted(): void
     {
         static::created(function (User $user): void {
-            // Grant the welcome bonus only when coins were not explicitly set.
-            // The DB default is 0, so this covers direct + social registrations
-            // while preserving any intentional value (seeds, factories, admin).
             if ((int) $user->coins === 0) {
-                $user->forceFill([
-                    'coins' => self::WELCOME_COINS,
-                ])->saveQuietly();
+                $user->forceFill(['coins' => self::WELCOME_COINS])->saveQuietly();
             }
         });
     }
@@ -144,9 +139,6 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     // CASTS & ACCESSORS
     // ==================================================================
 
-    /**
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
@@ -156,8 +148,10 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             'subscription_started_at' => 'datetime',
             'subscription_expires_at' => 'datetime',
             'last_active_at' => 'datetime',
+            'last_seen_at' => 'datetime',
             'auto_renew' => 'boolean',
             'is_verified' => 'boolean',
+            'is_online' => 'boolean',
             'age' => 'integer',
             'coins' => 'integer',
             'lat' => 'float',
@@ -165,16 +159,20 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         ];
     }
 
-    /**
-     * Public URL for the stored avatar path, or null if no avatar.
-     * Appended automatically (see $appends) so Inertia props include it.
-     */
+    /** Public URL for stored avatar path, or null. */
     protected function avatarUrl(): Attribute
     {
         return Attribute::make(
-            get: fn() => $this->avatar
-                ? Storage::url($this->avatar)
-                : null,
+            get: function () {
+                if (!$this->avatar) {
+                    return null;
+                }
+                try {
+                    return Storage::url($this->avatar);
+                } catch (\Throwable) {
+                    return null;
+                }
+            },
         );
     }
 
@@ -192,21 +190,8 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->belongsTo(Town::class);
     }
 
-    /** 1:1 — optional escort listing. Null if user is only social/dating. */
+    /** Optional escort listing. Null if user is only social/dating. */
     public function profile(): HasOne
-    {
-        return $this->hasOne(UserProfile::class);
-    }
-
-    /**
-     * Convenience alias so existing code that calls `$user->photos`
-     * or `load('photos')` keeps working.
-     *
-     * The actual photo data lives on the escort profile:
-     *   $user->photos->gallery       (array of paths)
-     *   $user->photos->cover_image   (single path)
-     */
-    public function photos(): HasOne
     {
         return $this->hasOne(UserProfile::class);
     }
@@ -222,113 +207,76 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->hasMany(UserReview::class, 'reviewer_id');
     }
 
-    /** Reviews other users wrote about this user (escort role). */
+    /** Reviews others wrote about this user (escort role). */
     public function reviewsReceived(): HasMany
     {
         return $this->hasMany(UserReview::class, 'escort_id');
     }
 
-    /** Users this user blocked. */
     public function blockedUsers(): BelongsToMany
     {
-        return $this->belongsToMany(
-            User::class,
-            'user_blocks',
-            'blocker_id',
-            'blocked_id'
-        )->withTimestamps();
+        return $this->belongsToMany(User::class, 'user_blocks', 'blocker_id', 'blocked_id')
+            ->withTimestamps();
     }
 
-    /** Users who blocked this user. */
     public function blockedBy(): BelongsToMany
     {
-        return $this->belongsToMany(
-            User::class,
-            'user_blocks',
-            'blocked_id',
-            'blocker_id'
-        )->withTimestamps();
+        return $this->belongsToMany(User::class, 'user_blocks', 'blocked_id', 'blocker_id')
+            ->withTimestamps();
     }
 
-    /** Reports this user filed. */
     public function reportsFiled(): HasMany
     {
         return $this->hasMany(UserReport::class, 'reporter_id');
     }
 
-    /** Reports filed against this user. */
     public function reportsReceived(): HasMany
     {
         return $this->hasMany(UserReport::class, 'reported_id');
     }
 
-    /** Conversations where this user is side A (lower id). */
     public function conversationsAsOne(): HasMany
     {
         return $this->hasMany(Conversation::class, 'user_one_id');
     }
 
-    /** Conversations where this user is side B (higher id). */
     public function conversationsAsTwo(): HasMany
     {
         return $this->hasMany(Conversation::class, 'user_two_id');
     }
 
-    /** Participant rows (per-conversation state). */
     public function conversationParticipants(): HasMany
     {
         return $this->hasMany(ConversationParticipant::class);
     }
 
-    /** Messages this user sent. */
     public function messages(): HasMany
     {
         return $this->hasMany(Message::class, 'sender_id');
     }
 
-    /** Read receipts this user generated. */
     public function messageReads(): HasMany
     {
         return $this->hasMany(MessageRead::class);
     }
 
-    /**
-     * Attachments on messages this user sent.
-     * Convenience only — most code will go through Message::attachments().
-     */
-    public function messageAttachments(): HasManyThrough
-    {
-        return $this->hasManyThrough(
-            MessageAttachment::class,
-            Message::class,
-            'sender_id',   // FK on messages → users.id
-            'message_id',  // FK on message_attachments → messages.id
-            'id',
-            'id'
-        );
-    }
-
-    /** Every coin ledger entry for this user (purchases, bonuses, spends, refunds). */
     public function coinTransactions(): HasMany
     {
         return $this->hasMany(CoinTransaction::class);
     }
 
-    /** Only purchase rows — useful for summaries and history filters. */
     public function coinPurchases(): HasMany
     {
         return $this->hasMany(CoinTransaction::class)
             ->where('type', CoinTransaction::TYPE_PURCHASE);
     }
 
-    /** Completed purchases only — the ones that actually moved coins. */
     public function completedCoinPurchases(): HasMany
     {
         return $this->coinPurchases()
             ->where('status', CoinTransaction::STATUS_COMPLETED);
     }
 
-    /** Pending/processing purchases — used to prevent duplicate STK pushes. */
     public function pendingCoinPurchases(): HasMany
     {
         return $this->coinPurchases()
@@ -336,6 +284,25 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
                 CoinTransaction::STATUS_PENDING,
                 CoinTransaction::STATUS_PROCESSING,
             ]);
+    }
+
+    // ==================================================================
+    // ESCORT LISTING / PAYMENTS
+    // ==================================================================
+
+    public function escortListingPayments(): HasMany
+    {
+        return $this->hasMany(EscortListingPayment::class);
+    }
+
+    public function latestEscortPayment(): HasOne
+    {
+        return $this->hasOne(EscortListingPayment::class)->latestOfMany();
+    }
+
+    public function phoneReveals(): HasMany
+    {
+        return $this->hasMany(PhoneReveal::class, 'viewer_id');
     }
 
     // ==================================================================
@@ -355,6 +322,26 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->profile()->exists();
     }
 
+    /** Paid escort tier is active and approved. */
+    public function hasActiveEscortListing(): bool
+    {
+        $p = $this->profile;
+
+        return $p
+            && $p->listing_tier === 'escort'
+            && $p->is_approved
+            && $p->listing_expires_at
+            && $p->listing_expires_at->isFuture();
+    }
+
+    /** Pending escort listing payment in flight. */
+    public function hasPendingEscortPayment(): bool
+    {
+        return $this->escortListingPayments()
+            ->where('status', 'pending')
+            ->exists();
+    }
+
     public function hasBlocked(User $other): bool
     {
         return $this->blockedUsers()->whereKey($other->id)->exists();
@@ -365,27 +352,21 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->blockedBy()->whereKey($other->id)->exists();
     }
 
-    /** Whether this user has liked the given user. */
     public function hasLiked(User $other): bool
     {
-        return $this->likes()
-            ->where('liked_user_id', $other->id)
-            ->exists();
+        return $this->likes()->where('liked_user_id', $other->id)->exists();
     }
 
-    /** Whether any coin payment is currently in flight (STK or C2B). */
     public function hasPendingCoinPurchase(): bool
     {
         return $this->pendingCoinPurchases()->exists();
     }
 
-    /** Total KES this user has spent on coins (completed purchases only). */
     public function totalSpentOnCoins(): int
     {
         return (int) $this->completedCoinPurchases()->sum('amount_kes');
     }
 
-    /** Total coins this user has bought (completed purchases only). */
     public function totalCoinsPurchased(): int
     {
         return (int) $this->completedCoinPurchases()->sum('coins');
@@ -399,5 +380,15 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function scopeEscorts($query)
     {
         return $query->whereHas('profile');
+    }
+
+    /** Approved, unexpired escort-tier profiles only. */
+    public function scopeActiveEscorts($query)
+    {
+        return $query->whereHas('profile', function ($q) {
+            $q->where('listing_tier', 'escort')
+                ->where('is_approved', true)
+                ->where('listing_expires_at', '>', now());
+        });
     }
 }

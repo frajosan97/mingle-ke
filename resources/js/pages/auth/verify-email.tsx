@@ -27,7 +27,7 @@ export default function VerifyEmail({ status }: { status?: string }) {
                 {({ processing }) => (
                     <>
                         {/* Icon Badge */}
-                        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-brand-soft shadow-sm ring-1 ring-border/50">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-soft shadow-sm ring-1 ring-border/50">
                             <MailCheck className="h-8 w-8 text-brand-pink" />
                         </div>
 
@@ -39,8 +39,9 @@ export default function VerifyEmail({ status }: { status?: string }) {
                         </div>
 
                         <Button
+                            type="submit"
+                            className="mt-2 w-full rounded-full bg-primary px-6 py-2.5 text-sm font-bold text-primary-foreground shadow-glow-pink transition-all hover:scale-[1.02] hover:bg-primary/90 hover:shadow-glow-pink-strong disabled:opacity-70"
                             disabled={processing}
-                            className="w-full rounded-full bg-gradient-brand px-6 py-2.5 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong disabled:opacity-70"
                         >
                             {processing && <Spinner className="mr-2 h-4 w-4" />}
                             Resend Verification Email

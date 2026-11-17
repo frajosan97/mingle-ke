@@ -6,9 +6,12 @@ import { initializeTheme } from "@/hooks/use-appearance";
 import { configureEcho } from "@laravel/echo-react";
 import AppLayout from "@/layouts/app-layout";
 import AuthLayout from "@/layouts/auth-layout";
-import SettingsLayout from "./layouts/settings/layout";
+import SettingsLayout from "@/layouts/settings/layout";
+import GuestLayout from "@/layouts/guest-layout";
 
 const appName = import.meta.env.VITE_APP_NAME || "Laravel";
+
+const appLayoutPrefixes = ["escort/", "coin/", "conversations/", "dashboard"];
 
 type AuthWindow = Window & {
     __authUserId?: number | null;
@@ -51,35 +54,29 @@ void createInertiaApp({
     title: (title) => (title ? `${title} - ${appName}` : appName),
 
     layout: (name) => {
-        switch (true) {
-            case name === "welcome":
-                return null;
-
-            case name.startsWith("auth/"):
-                return AuthLayout;
-
-            case name.startsWith("settings/"):
-                return [AppLayout, SettingsLayout];
-
-            default:
-                return AppLayout;
+        if (name.startsWith("auth/")) {
+            return AuthLayout;
         }
+        
+        if (name.startsWith("settings/")) {
+            return [AppLayout, SettingsLayout];
+        }
+
+        if (appLayoutPrefixes.some((prefix) => name.startsWith(prefix))) {
+            return AppLayout;
+        }
+
+        return GuestLayout;
     },
 
     strictMode: true,
 
     setup({ el, App, props }) {
-        // This is the browser entry point. SSR must use a separate
-        // entry file configured in vite.config.ts.
         if (typeof window === "undefined") {
             return;
         }
 
         if (!el) {
-            console.error(
-                "Inertia root element is missing. Check the Blade layout " +
-                    "and ensure the SSR entry point is configured separately.",
-            );
             return;
         }
 

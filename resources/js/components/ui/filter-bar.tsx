@@ -629,7 +629,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
                 ref={containerRef}
                 className="flex flex-wrap items-center gap-3 rounded-2xl border border-border/60 bg-card/80 p-3"
             >
-                <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-brand-soft px-3 py-1.5 text-xs font-semibold text-brand-pink">
+                <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1.5 text-xs font-semibold text-brand-pink">
                     <SlidersHorizontal className="h-3.5 w-3.5" />
                     Filters
                     {totalActive > 0 && (
@@ -651,7 +651,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
                         aria-expanded={moreOpen}
                         className={`relative inline-flex h-[38px] w-[38px] items-center justify-center rounded-full border transition ${
                             moreOpen
-                                ? "border-brand-pink bg-gradient-brand-soft text-brand-pink"
+                                ? "border-brand-pink bg-primary-soft text-brand-pink"
                                 : "border-border bg-card text-muted-foreground hover:border-brand-pink/50 hover:text-foreground"
                         }`}
                     >
@@ -819,7 +819,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
                                 <button
                                     type="button"
                                     onClick={() => setMoreOpen(false)}
-                                    className="rounded-full bg-gradient-brand px-5 py-2 text-xs font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-bright"
+                                    className="rounded-full bg-primary px-5 py-2 text-xs font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-bright"
                                 >
                                     Done
                                 </button>

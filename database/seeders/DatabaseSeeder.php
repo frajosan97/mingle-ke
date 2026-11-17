@@ -17,8 +17,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             KenyaLocationsSeeder::class,
-            UserSeeder::class,
-            EscortProfileSeeder::class,
+            PricingPlanSeeder::class
         ]);
     }
 }
