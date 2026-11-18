@@ -446,7 +446,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
                 return;
             clean[k] = v;
         });
-        router.get("/discover", clean as any, {
+        router.get("/escorts", clean as any, {
             preserveScroll: true,
             preserveState: true,
             replace: true,
@@ -454,7 +454,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
     }
 
     function clearAll() {
-        router.get("/discover", {}, { preserveScroll: true, replace: true });
+        router.get("/escorts", {}, { preserveScroll: true, replace: true });
     }
 
     function clearAdvanced() {

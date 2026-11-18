@@ -20,10 +20,11 @@ import AppLogo from "../../components/app-logo";
 
 /* ── Types ───────────────────────────────────────────────── */
 
-type HeaderUser = {
+export type HeaderUser = {
     id: number;
     name: string;
-    avatar_url: string | null;
+    avatar?: string | null;
+    avatar_url?: string | null;
     listing_active?: boolean;
 };
 
@@ -32,25 +33,25 @@ type NavLink = { label: string; href: string; icon?: LucideIcon };
 /* ── Nav data ────────────────────────────────────────────── */
 
 const PUBLIC_NAV: NavLink[] = [
-    { label: "Discover", href: "/discover" },
+    { label: "Discover", href: "/escorts" },
     { label: "Escorts", href: "/escorts" },
     { label: "How it works", href: "/#how-it-works" },
     { label: "Safety", href: "/#safety" },
 ];
 
 const AUTH_NAV: NavLink[] = [
-    { label: "Discover", href: "/discover" },
+    { label: "Discover", href: "/escorts" },
     { label: "Escorts", href: "/escorts" },
 ];
 
 const ESCORT_EXTRA_NAV: NavLink = {
     label: "My listing",
-    href: "/escort/onboarding",
+    href: "/escorts/onboarding",
 };
 
 const ACCOUNT_NAV: NavLink[] = [
     { label: "Profile", href: "/settings/profile", icon: UserIcon },
-    { label: "Wallet", href: "/wallet", icon: Wallet },
+    { label: "Wallet", href: "/wallets", icon: Wallet },
     { label: "Messages", href: "/conversations", icon: MessageCircle },
 ];
 
@@ -205,7 +206,7 @@ export default function GuestHeader({ user }: { user?: HeaderUser | null }) {
                                     </span>
                                 ) : (
                                     <Link
-                                        href="/escort/listing-fee"
+                                        href="/escorts/listing-fee"
                                         className={`hidden md:inline-block ${PRIMARY_CTA}`}
                                     >
                                         Become an escort
@@ -307,7 +308,7 @@ export default function GuestHeader({ user }: { user?: HeaderUser | null }) {
 
                                 {!user.listing_active && (
                                     <Link
-                                        href="/escort/listing-fee"
+                                        href="/escorts/listing-fee"
                                         onClick={closeAll}
                                         className="mt-1 rounded-lg bg-primary px-4 py-2.5 text-center text-sm font-bold text-primary-foreground"
                                     >
@@ -356,15 +357,18 @@ export default function GuestHeader({ user }: { user?: HeaderUser | null }) {
 /* ── Extracted bits ──────────────────────────────────────── */
 
 function Avatar({ user }: { user: HeaderUser }) {
-    if (user.avatar_url) {
+    const avatarUrl = user.avatar_url ?? user.avatar;
+
+    if (avatarUrl) {
         return (
             <img
-                src={user.avatar_url}
+                src={avatarUrl}
                 alt={user.name}
                 className="h-8 w-8 rounded-full object-cover"
             />
         );
     }
+
     return (
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
             {user.name.charAt(0).toUpperCase()}
@@ -404,19 +408,6 @@ function ProfileMenu({
                     {label}
                 </Link>
             ))}
-
-            <Link
-                href={
-                    user.listing_active
-                        ? "/escort/onboarding"
-                        : "/escort/listing-fee"
-                }
-                onClick={onClose}
-                className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-            >
-                <Settings className="h-4 w-4 text-muted-foreground" />
-                {user.listing_active ? "My listing" : "Become an escort"}
-            </Link>
 
             <Link
                 href="/logout"

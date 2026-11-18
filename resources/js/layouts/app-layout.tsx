@@ -1,26 +1,14 @@
 // resources/js/layouts/app-layout.tsx
-import { type PropsWithChildren, useState } from "react";
+import { type PropsWithChildren } from "react";
 import { Link, usePage } from "@inertiajs/react";
-import {
-    MessageCircle,
-    Compass,
-    Heart,
-    Star,
-    Search,
-    BadgeCheck,
-    Coins,
-} from "lucide-react";
+import { BadgeCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAutoLocation } from "@/hooks/use-auto-location";
-import ConversationList from "@/components/conversation/conversation-list";
-import PushNotifications from "@/components/push-notifications";
 import { OnlineStatusProvider } from "@/hooks/use-app-online-status";
 import { CoinsProvider } from "@/contexts/coins-context";
-import TopUpModal from "@/components/modals/top-up-modal";
-
-interface Props extends PropsWithChildren {
-    showInbox?: boolean;
-}
+import { buildNavItems, isProfileActive } from "@/lib/nav-items";
+import TopUpModal from "@/components/modals/top-up-dialog";
+import AppMobileBottomMenu from "@/components/app-mobile-bottom-menu";
 
 interface AuthUser {
     id: number;
@@ -29,7 +17,7 @@ interface AuthUser {
     coins?: number;
 }
 
-export default function AppLayout({ children, showInbox = false }: Props) {
+export default function AppLayout({ children }: PropsWithChildren) {
     useAutoLocation();
 
     const { props, url } = usePage();
@@ -37,55 +25,8 @@ export default function AppLayout({ children, showInbox = false }: Props) {
         auth: { user: AuthUser | null };
     };
 
-    const [search, setSearch] = useState("");
-
-    const isConversationOpen = /^\/conversations\/\d+/.test(url);
-    const activeId = url.match(/^\/conversations\/(\d+)/)?.[1];
-
-    const isInboxRoute = url === "/conversations" || url === "/";
-
-    const shouldShowInbox = showInbox || isInboxRoute || isConversationOpen;
-
-    const navItems = [
-        {
-            label: "Messages",
-            href: "/conversations",
-            icon: MessageCircle,
-            active: url.startsWith("/conversations"),
-            isProfile: false,
-        },
-        {
-            label: "Discover",
-            href: "/discover",
-            icon: Compass,
-            active: url.startsWith("/discover"),
-            isProfile: false,
-        },
-        // {
-        //     label: "Matches",
-        //     href: "/matches",
-        //     icon: Heart,
-        //     active: url.startsWith("/matches"),
-        //     isProfile: false,
-        // },
-        // {
-        //     label: "Favorites",
-        //     href: "/favorites",
-        //     icon: Star,
-        //     active: url.startsWith("/favorites"),
-        //     isProfile: false,
-        // },
-        {
-            label: "Coins",
-            href: "/coins",
-            icon: Coins,
-            active: url.startsWith("/coins"),
-            isProfile: false,
-        },
-    ];
-
-    const isProfileActive =
-        url.startsWith("/profile") || url.startsWith("/settings");
+    const navItems = buildNavItems(url);
+    const profileActive = isProfileActive(url);
 
     const avatarUrl = auth.user?.avatar_url ?? null;
     const initial = auth.user?.name?.charAt(0).toUpperCase() ?? "?";
@@ -100,30 +41,27 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                         "pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0",
                     )}
                 >
-                    {/* Global push notification bootstrap */}
-                    {/* <PushNotifications /> */}
-
-                    {/* ── Column 1: Left Nav Rail ─────────────────────── */}
+                    {/* ── Column 1: Left Nav Rail ─────────────────── */}
                     <aside className="hidden w-[68px] flex-col items-center border-r border-border bg-muted/40 py-4 md:flex">
                         <nav className="flex flex-1 flex-col items-center gap-3">
                             {navItems.map((item) => {
                                 const Icon = item.icon;
                                 const showCoinBadge =
-                                    item.label === "Coins" && userCoins > 0;
+                                    item.title === "Coins" && userCoins > 0;
 
                                 return (
                                     <Link
-                                        key={item.label}
+                                        key={item.title}
                                         href={item.href}
-                                        title={item.label}
+                                        title={item.title}
                                         className={cn(
                                             "group relative flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-300",
-                                            item.active
+                                            item.isActive
                                                 ? "bg-primary text-white shadow-glow-pink"
                                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
                                         )}
                                     >
-                                        <Icon className="h-5 w-5" />
+                                        {Icon && <Icon className="h-5 w-5" />}
                                         {showCoinBadge && (
                                             <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-pink px-1 text-[9px] font-bold text-white shadow-glow-pink">
                                                 {userCoins > 99
@@ -131,7 +69,7 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                                                     : userCoins}
                                             </span>
                                         )}
-                                        {item.active && (
+                                        {item.isActive && (
                                             <span className="absolute -left-[13px] h-6 w-1 rounded-r-full bg-primary" />
                                         )}
                                     </Link>
@@ -141,14 +79,14 @@ export default function AppLayout({ children, showInbox = false }: Props) {
 
                         <div className="mt-auto flex flex-col items-center pb-2">
                             <Link
-                                href="/settings/profile"
+                                href="/settings"
                                 title="My Profile & Settings"
                                 className="relative mt-2"
                             >
                                 <div
                                     className={cn(
                                         "flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-white shadow-glow-pink ring-2 ring-transparent transition-all",
-                                        isProfileActive &&
+                                        profileActive &&
                                             "shadow-glow-pink-strong ring-brand-pink",
                                     )}
                                 >
@@ -167,146 +105,12 @@ export default function AppLayout({ children, showInbox = false }: Props) {
                         </div>
                     </aside>
 
-                    {/* ── Column 2: Optional Inbox Sidebar ─────────────── */}
-                    {shouldShowInbox && (
-                        <aside
-                            className={cn(
-                                "flex w-full flex-col border-r border-border bg-card md:w-[380px] lg:w-[420px]",
-                                isConversationOpen && "hidden md:flex",
-                            )}
-                        >
-                            <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-border px-4">
-                                <h1 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-                                    Messages
-                                    <span className="rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-brand-pink">
-                                        Inbox
-                                    </span>
-                                </h1>
-                            </header>
+                    {/* ── Page content ────────────────────────────── */}
+                    {children}
 
-                            <div className="px-3 py-3">
-                                <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/60 px-3 py-2 transition-colors focus-within:border-brand-pink/40 focus-within:ring-2 focus-within:ring-brand-pink/20">
-                                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                    <input
-                                        type="text"
-                                        value={search}
-                                        onChange={(e) =>
-                                            setSearch(e.target.value)
-                                        }
-                                        placeholder="Search messages"
-                                        className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-                                    />
-                                </div>
-                            </div>
+                    {/* ── Mobile Bottom Navigation ────────────────── */}
+                    <AppMobileBottomMenu />
 
-                            <div className="flex-1 overflow-y-auto scrollbar-thin">
-                                <ConversationList
-                                    activeId={activeId}
-                                    query={search}
-                                />
-                            </div>
-                        </aside>
-                    )}
-
-                    {/* ── Column 3: Main Content ───────────────────────── */}
-                    <main
-                        className={cn(
-                            "relative min-w-0 flex-1 flex-col overflow-y-auto scrollbar-thin",
-                            isConversationOpen
-                                ? "flex"
-                                : shouldShowInbox
-                                  ? "hidden md:flex"
-                                  : "flex",
-                        )}
-                    >
-                        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                            <div className="orb orb-pink absolute -left-24 top-1/4 h-80 w-80 opacity-10" />
-                            <div className="orb orb-orange absolute -right-24 bottom-1/4 h-72 w-72 opacity-10" />
-                        </div>
-
-                        <div className="relative z-10 flex h-full w-full flex-col">
-                            {children}
-                        </div>
-                    </main>
-
-                    {/* ── Mobile Bottom Navigation (fixed) ─────────────── */}
-                    <nav
-                        className={cn(
-                            "fixed bottom-0 left-0 right-0 z-50 md:hidden",
-                            "flex h-[calc(4rem+env(safe-area-inset-bottom))] items-center justify-around border-t border-border bg-card/90 px-2 backdrop-blur-md",
-                            "pb-[env(safe-area-inset-bottom)]",
-                        )}
-                    >
-                        {[
-                            ...navItems,
-                            {
-                                label: "Profile",
-                                href: "/settings/profile",
-                                icon: BadgeCheck,
-                                active: isProfileActive,
-                                isProfile: true,
-                            },
-                        ].map((item) => {
-                            const Icon = item.icon;
-                            const showAvatar = item.isProfile && avatarUrl;
-                            const showCoinBadge =
-                                item.label === "Coins" && userCoins > 0;
-
-                            return (
-                                <Link
-                                    key={item.label}
-                                    href={item.href}
-                                    className={cn(
-                                        "flex flex-col items-center justify-center gap-1 p-2 transition-colors",
-                                        item.active
-                                            ? "text-brand-pink"
-                                            : "text-muted-foreground hover:text-foreground",
-                                    )}
-                                >
-                                    <span className="relative">
-                                        {showAvatar ? (
-                                            <span
-                                                className={cn(
-                                                    "flex h-6 w-6 items-center justify-center overflow-hidden rounded-full ring-2 ring-transparent transition-all",
-                                                    item.active &&
-                                                        "ring-brand-pink",
-                                                )}
-                                            >
-                                                <img
-                                                    src={avatarUrl!}
-                                                    alt={
-                                                        auth.user?.name ??
-                                                        "Profile"
-                                                    }
-                                                    className="h-full w-full object-cover"
-                                                />
-                                            </span>
-                                        ) : (
-                                            <Icon
-                                                className={cn(
-                                                    "h-5 w-5",
-                                                    item.active &&
-                                                        "fill-brand-pink/20",
-                                                )}
-                                            />
-                                        )}
-                                        {showCoinBadge && (
-                                            <span className="absolute -right-2 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-brand-pink px-1 text-[8px] font-bold text-white">
-                                                {userCoins > 99
-                                                    ? "99+"
-                                                    : userCoins}
-                                            </span>
-                                        )}
-                                    </span>
-                                    <span className="text-[10px] font-medium">
-                                        {item.label}
-                                    </span>
-                                </Link>
-                            );
-                        })}
-                    </nav>
-
-                    {/* Mounted once — reachable from every page wrapped by AppLayout */}
                     <TopUpModal />
                 </div>
             </OnlineStatusProvider>

@@ -7,10 +7,10 @@ import { BadgeCheck, Check, CheckCheck, Compass, SearchX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Conversation, MessageStatus } from "@/types";
 
-type ExtendedConversation = Conversation & {
+type ExtendedConversation = Omit<Conversation, "lastMessageId"> & {
     online?: boolean;
     verified?: boolean;
-    lastMessageId?: number | null;
+    lastMessageId?: number | string | null;
 };
 
 interface Props {
@@ -18,13 +18,28 @@ interface Props {
     query?: string;
 }
 
-type MessageEvent = {
+interface MessageEvent {
     id: number | string;
     conversation_id: number | string;
     sender_id: number | string;
     body?: string | null;
     content?: string | null;
     created_at?: string | null;
+}
+
+interface ReceiptEvent {
+    message_id?: number | string | null;
+    conversation_id?: number | string | null;
+    sender_id?: number | string | null;
+}
+
+type ReceiptStatus = "delivered" | "read";
+
+const statusRank: Record<MessageStatus, number> = {
+    pending: 0,
+    sent: 1,
+    delivered: 2,
+    read: 3,
 };
 
 function timestamp(value?: string | number | null): number {
@@ -35,12 +50,6 @@ function timestamp(value?: string | number | null): number {
 
     return Number.isFinite(result) ? result : 0;
 }
-
-const statusRank: Record<MessageStatus, number> = {
-    sent: 0,
-    delivered: 1,
-    read: 2,
-};
 
 function higherStatus(
     a?: MessageStatus | null,
@@ -76,16 +85,24 @@ function formatTime(value?: string | null): string {
 export default function ConversationList({ activeId, query = "" }: Props) {
     const { props } = usePage();
 
-    const userId = Number((props as any).auth?.user?.id);
+    const pageProps = props as typeof props & {
+        auth?: {
+            user?: {
+                id?: number | string;
+            } | null;
+        };
+        conversations?: ExtendedConversation[];
+    };
 
-    const initial = ((props as any).conversations ??
-        []) as ExtendedConversation[];
+    const userId = Number(pageProps.auth?.user?.id);
+
+    const initial = pageProps.conversations ?? [];
 
     const [conversations, setConversations] = useState<ExtendedConversation[]>(
         () => sortConversations(initial),
     );
 
-    // Keep refs current so Echo callbacks do not rely on stale state.
+    // Keep refs synchronized for real-time callbacks.
     const conversationsRef = useRef(conversations);
     const activeIdRef = useRef(activeId);
 
@@ -97,12 +114,11 @@ export default function ConversationList({ activeId, query = "" }: Props) {
         activeIdRef.current = activeId;
     }, [activeId]);
 
-    // Prevent duplicate delivery acknowledgements and repeated reloads.
+    // Prevent duplicate acknowledgements and reloads.
     const acknowledgedMessages = useRef<Set<string>>(new Set());
     const pendingConversationReloads = useRef<Set<string>>(new Set());
 
-    // Merge server props without discarding newer real-time messages or
-    // downgrading receipt statuses.
+    // Synchronize server props without losing newer real-time updates.
     useEffect(() => {
         setConversations((current) => {
             const currentById = new Map(
@@ -115,14 +131,16 @@ export default function ConversationList({ activeId, query = "" }: Props) {
             const merged = initial.map((server) => {
                 const existing = currentById.get(String(server.id));
 
+                const isActive =
+                    String(server.id) === String(activeIdRef.current ?? "");
+
                 if (!existing) {
-                    return String(server.id) === String(activeIdRef.current)
-                        ? { ...server, unread: 0 }
-                        : server;
+                    return isActive ? { ...server, unread: 0 } : server;
                 }
 
                 const serverTime = timestamp(server.lastMessageAt);
                 const existingTime = timestamp(existing.lastMessageAt);
+
                 const serverIsNewer = serverTime >= existingTime;
 
                 const sameMessage =
@@ -136,15 +154,14 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                     ? { ...existing, ...server }
                     : { ...server, ...existing };
 
-                const isActive =
-                    String(server.id) === String(activeIdRef.current);
-
                 return {
                     ...latest,
+
                     lastMessageId:
                         latest.lastMessageId ??
                         existing.lastMessageId ??
                         server.lastMessageId,
+
                     lastMessageStatus: sameMessage
                         ? higherStatus(
                               existing.lastMessageStatus,
@@ -153,6 +170,7 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                         : serverIsNewer
                           ? server.lastMessageStatus
                           : existing.lastMessageStatus,
+
                     unread: isActive
                         ? 0
                         : serverIsNewer
@@ -164,29 +182,39 @@ export default function ConversationList({ activeId, query = "" }: Props) {
             return sortConversations(merged);
         });
 
-        // A server refresh has completed supplying the conversation list.
         pendingConversationReloads.current.clear();
     }, [initial]);
 
-    // Clear the active conversation's badge independently of server syncing.
+    // Clear unread count for the active conversation.
     useEffect(() => {
         if (activeId == null) return;
 
-        setConversations((current) =>
-            current.map((conversation) =>
-                String(conversation.id) === String(activeId)
-                    ? { ...conversation, unread: 0 }
-                    : conversation,
-            ),
-        );
+        setConversations((current) => {
+            const index = current.findIndex(
+                (conversation) => String(conversation.id) === String(activeId),
+            );
+
+            if (index === -1 || current[index].unread === 0) {
+                return current;
+            }
+
+            const next = [...current];
+
+            next[index] = {
+                ...next[index],
+                unread: 0,
+            };
+
+            return next;
+        });
     }, [activeId]);
 
-    // Update the sidebar immediately when a message arrives.
+    // Keep real-time message handling centralized.
     useEcho(
         userId ? `user.${userId}` : "user.0",
         ".MessageSent",
-        (event: any) => {
-            const message = event?.message as MessageEvent | undefined;
+        (event: { message?: MessageEvent }) => {
+            const message = event?.message;
 
             if (!message || !userId) return;
 
@@ -197,7 +225,9 @@ export default function ConversationList({ activeId, query = "" }: Props) {
 
             const conversationKey = String(conversationId);
             const messageKey = `${conversationKey}:${messageId}`;
+
             const isMine = Number(message.sender_id) === userId;
+
             const isActive =
                 String(activeIdRef.current ?? "") === conversationKey;
 
@@ -205,8 +235,7 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                 (conversation) => String(conversation.id) === conversationKey,
             );
 
-            // Acknowledge incoming messages once. The open conversation's
-            // real-time hook should also mark them read when appropriate.
+            // Acknowledge incoming messages once.
             if (!isMine && !acknowledgedMessages.current.has(messageKey)) {
                 acknowledgedMessages.current.add(messageKey);
 
@@ -214,6 +243,7 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                     .post(`/conversations/${conversationId}/delivered`)
                     .catch((error) => {
                         acknowledgedMessages.current.delete(messageKey);
+
                         console.error(
                             "Failed to acknowledge message delivery:",
                             error,
@@ -221,7 +251,7 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                     });
             }
 
-            // A new conversation may not yet be present in the sidebar.
+            // Reload when a new conversation is missing from the sidebar.
             if (!existingConversation) {
                 if (!pendingConversationReloads.current.has(conversationKey)) {
                     pendingConversationReloads.current.add(conversationKey);
@@ -240,7 +270,9 @@ export default function ConversationList({ activeId, query = "" }: Props) {
             }
 
             const createdAt = message.created_at ?? new Date().toISOString();
+
             const body = message.body ?? message.content ?? "";
+
             const incomingTime = timestamp(createdAt);
 
             setConversations((current) => {
@@ -252,10 +284,10 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                 if (index === -1) return current;
 
                 const existing = current[index];
+
                 const existingTime = timestamp(existing.lastMessageAt);
 
-                // Ignore stale events and duplicate delivery of the same
-                // latest message so unread counts are not incremented twice.
+                // Ignore stale or duplicate messages.
                 if (
                     incomingTime < existingTime ||
                     String(existing.lastMessageId ?? "") === String(messageId)
@@ -266,11 +298,12 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                 const updated: ExtendedConversation = {
                     ...existing,
                     lastMessage: body,
-                    lastMessageId: messageId as number,
+                    lastMessageId: messageId,
                     lastMessageAt: createdAt,
                     lastMessageSenderId: Number(message.sender_id),
                     lastMessageStatus: isMine ? "sent" : null,
                     time: formatTime(createdAt),
+
                     unread: isActive
                         ? 0
                         : isMine
@@ -279,6 +312,7 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                 };
 
                 const next = [...current];
+
                 next[index] = updated;
 
                 return sortConversations(next);
@@ -286,12 +320,11 @@ export default function ConversationList({ activeId, query = "" }: Props) {
         },
     );
 
-    // Apply delivery/read receipts to the corresponding latest sent message.
+    // Handle message delivery and read receipts.
     const handleReceipt = useCallback(
-        (event: any, status: "delivered" | "read") => {
+        (event: ReceiptEvent, status: ReceiptStatus) => {
             if (event?.message_id == null || !userId) return;
 
-            // Only update receipts for messages sent by this user.
             if (Number(event.sender_id) !== userId) return;
 
             const conversationId = event.conversation_id;
@@ -308,7 +341,7 @@ export default function ConversationList({ activeId, query = "" }: Props) {
 
                 const existing = current[index];
 
-                // Do not apply an old receipt to a different latest message.
+                // Do not apply an old receipt to another message.
                 if (
                     existing.lastMessageId != null &&
                     String(existing.lastMessageId) !== String(event.message_id)
@@ -335,15 +368,16 @@ export default function ConversationList({ activeId, query = "" }: Props) {
     useEcho(
         userId ? `user.${userId}` : "user.0",
         ".MessageDelivered",
-        (event: any) => handleReceipt(event, "delivered"),
+        (event: ReceiptEvent) => handleReceipt(event, "delivered"),
     );
 
     useEcho(
         userId ? `user.${userId}` : "user.0",
         ".MessageRead",
-        (event: any) => handleReceipt(event, "read"),
+        (event: ReceiptEvent) => handleReceipt(event, "read"),
     );
 
+    // Filter conversations.
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
 
@@ -352,12 +386,20 @@ export default function ConversationList({ activeId, query = "" }: Props) {
         return conversations.filter((conversation) => {
             const name = (conversation.name ?? "").toLowerCase();
             const last = (conversation.lastMessage ?? "").toLowerCase();
-            const area = ((conversation as any).area ?? "").toLowerCase();
+
+            const area = (
+                (
+                    conversation as ExtendedConversation & {
+                        area?: string;
+                    }
+                ).area ?? ""
+            ).toLowerCase();
 
             return name.includes(q) || last.includes(q) || area.includes(q);
         });
     }, [conversations, query]);
 
+    // Message status indicator.
     const renderMessageStatus = (conversation: ExtendedConversation) => {
         if (
             !userId ||
@@ -395,10 +437,11 @@ export default function ConversationList({ activeId, query = "" }: Props) {
         }
     };
 
+    // Empty state.
     if (conversations.length === 0) {
         return (
-            <div className="px-4 py-8 text-center">
-                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary-soft">
+            <div className="flex h-full min-h-[240px] flex-col items-center justify-center px-5 py-10 text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary-soft">
                     <Compass className="h-6 w-6 text-brand-pink" />
                 </div>
 
@@ -407,25 +450,26 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                 </p>
 
                 <Link
-                    href="/discover"
-                    className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift"
+                    href="/escorts"
+                    className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-xs font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift"
                 >
-                    <Compass className="h-3.5 w-3.5" />
+                    <Compass className="h-4 w-4" />
                     Discover profiles
                 </Link>
             </div>
         );
     }
 
+    // Search empty state.
     if (filtered.length === 0) {
         return (
-            <div className="px-4 py-8 text-center">
-                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+            <div className="flex h-full min-h-[240px] flex-col items-center justify-center px-5 py-10 text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
                     <SearchX className="h-6 w-6 text-muted-foreground" />
                 </div>
 
-                <p className="mb-1 text-sm font-medium text-foreground">
-                    No matches for "{query}"
+                <p className="mb-1 text-sm font-semibold text-foreground">
+                    No matches for &ldquo;{query}&rdquo;
                 </p>
 
                 <p className="text-xs text-muted-foreground">
@@ -436,54 +480,66 @@ export default function ConversationList({ activeId, query = "" }: Props) {
     }
 
     return (
-        <ul className="py-1">
+        <ul className="space-y-0.5 py-1">
             {filtered.map((conversation) => {
                 const active =
                     String(activeId ?? "") === String(conversation.id);
+
+                const unread = conversation.unread ?? 0;
+
+                const name = conversation.name ?? "Unknown user";
 
                 return (
                     <li key={conversation.id}>
                         <Link
                             href={`/conversations/${conversation.id}`}
+                            aria-current={active ? "page" : undefined}
                             className={cn(
-                                "relative flex items-center gap-3 px-4 py-3 transition-colors",
+                                "group relative flex min-w-0 items-center gap-3 px-4 py-3 transition-colors duration-150",
                                 "hover:bg-accent/50",
+                                active && "bg-primary-soft",
                                 active &&
-                                    "bg-primary-soft before:absolute before:inset-y-1 before:left-0 before:w-1 before:rounded-r-full before:bg-primary",
+                                    "before:absolute before:inset-y-1 before:left-0 before:w-1 before:rounded-r-full before:bg-primary",
                             )}
                         >
-                            <div className="relative shrink-0">
-                                <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-white">
+                            {/* Avatar */}
+                            <div className="relative h-12 w-12 shrink-0">
+                                <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-white ring-1 ring-border/30">
                                     {conversation.avatarUrl ? (
                                         <img
                                             src={conversation.avatarUrl}
-                                            alt={conversation.name ?? "Avatar"}
+                                            alt={name}
+                                            loading="lazy"
                                             className="h-full w-full object-cover"
                                         />
                                     ) : (
-                                        (conversation.name
-                                            ?.charAt(0)
-                                            .toUpperCase() ?? "?")
+                                        name.charAt(0).toUpperCase()
                                     )}
                                 </div>
 
                                 {conversation.online && (
-                                    <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-brand-green" />
+                                    <span
+                                        aria-label="Online"
+                                        className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-brand-green"
+                                    />
                                 )}
                             </div>
 
+                            {/* Conversation Details */}
                             <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between gap-2">
-                                    <p className="flex min-w-0 items-center gap-1 text-sm font-medium text-foreground">
-                                        <span
+                                {/* Name and timestamp */}
+                                <div className="flex min-w-0 items-center justify-between gap-2">
+                                    <div className="flex min-w-0 flex-1 items-center gap-1">
+                                        <p
                                             className={cn(
-                                                "truncate",
-                                                conversation.unread > 0 &&
-                                                    "font-semibold",
+                                                "truncate text-sm text-foreground",
+                                                unread > 0
+                                                    ? "font-bold"
+                                                    : "font-medium",
                                             )}
                                         >
-                                            {conversation.name}
-                                        </span>
+                                            {name}
+                                        </p>
 
                                         {conversation.verified && (
                                             <BadgeCheck
@@ -491,39 +547,44 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                                                 aria-label="Verified"
                                             />
                                         )}
-                                    </p>
+                                    </div>
 
-                                    <span
+                                    <time
                                         className={cn(
-                                            "ml-2 shrink-0 text-xs tabular-nums",
-                                            conversation.unread > 0
-                                                ? "font-medium text-brand-pink"
+                                            "shrink-0 text-[11px] tabular-nums",
+                                            unread > 0
+                                                ? "font-semibold text-brand-pink"
                                                 : "text-muted-foreground",
                                         )}
                                     >
                                         {conversation.time}
-                                    </span>
+                                    </time>
                                 </div>
 
-                                <div className="mt-0.5 flex items-center justify-between gap-2">
-                                    <div className="flex min-w-0 flex-1 items-center gap-1">
+                                {/* Message preview and unread badge */}
+                                <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
+                                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
                                         {renderMessageStatus(conversation)}
 
                                         <p
                                             className={cn(
-                                                "truncate text-sm",
-                                                conversation.unread > 0
-                                                    ? "text-foreground/80"
+                                                "min-w-0 flex-1 truncate text-[13px] leading-5",
+                                                unread > 0
+                                                    ? "font-medium text-foreground/80"
                                                     : "text-muted-foreground",
                                             )}
                                         >
-                                            {conversation.lastMessage}
+                                            {conversation.lastMessage ||
+                                                "Start a conversation"}
                                         </p>
                                     </div>
 
-                                    {conversation.unread > 0 && (
-                                        <span className="relative ml-2 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-white shadow-glow-pink/40">
-                                            {conversation.unread}
+                                    {unread > 0 && (
+                                        <span
+                                            aria-label={`${unread} unread messages`}
+                                            className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold leading-none text-white shadow-glow-pink/40"
+                                        >
+                                            {unread > 99 ? "99+" : unread}
                                         </span>
                                     )}
                                 </div>

@@ -279,34 +279,19 @@ export default function EscortOnboarding({ profile }: Props) {
                 title={isEditing ? "Manage escort profile" : "Become an escort"}
             />
 
-            <div className="space-y-8">
-                {/* ── Back + Header ────────────────────────────── */}
-                <div>
-                    <Link
-                        href="/settings/profile"
-                        className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
-                    >
-                        <ArrowLeft className="h-4 w-4" />
-                        Back to settings
-                    </Link>
-
-                    <div className="flex items-start gap-4">
-                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-white shadow-glow-pink">
-                            <Sparkles className="h-6 w-6" />
-                        </span>
-                        <div>
-                            <h2 className="text-2xl font-bold tracking-tight text-foreground">
-                                {isEditing
-                                    ? "Manage your escort profile"
-                                    : "Become an escort"}
-                            </h2>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                                {isEditing
-                                    ? "Keep your rates, services and availability up to date. Changes go live immediately."
-                                    : "Fill in your details below. Your profile will be reviewed and usually approved within 24 hours."}
-                            </p>
-                        </div>
-                    </div>
+            <div className="space-y-10 pb-8">
+                {/* ── Header ─────────────────────────────── */}
+                <header>
+                    <h2 className="text-2xl font-bold tracking-tight text-foreground">
+                        {isEditing
+                            ? "Manage your escort profile"
+                            : "Become an escort"}
+                    </h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                        {isEditing
+                            ? "Keep your rates, services and availability up to date. Changes go live immediately."
+                            : "Fill in your details below. Your profile will be reviewed and usually approved within 24 hours."}
+                    </p>
 
                     {isEditing && (
                         <div
@@ -323,11 +308,11 @@ export default function EscortOnboarding({ profile }: Props) {
                                 : "Your profile is pending review — it will appear on Discover once approved."}
                         </div>
                     )}
-                </div>
+                </header>
 
                 {/* ── Form ─────────────────────────────────────── */}
                 <Form
-                    action="/escort/onboarding"
+                    action="/escorts/onboarding"
                     method="post"
                     options={{ preserveScroll: true }}
                     encType="multipart/form-data"

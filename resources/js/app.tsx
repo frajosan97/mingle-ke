@@ -8,10 +8,11 @@ import AppLayout from "@/layouts/app-layout";
 import AuthLayout from "@/layouts/auth-layout";
 import SettingsLayout from "@/layouts/settings/layout";
 import GuestLayout from "@/layouts/guest-layout";
+import ConversationsLayout from "@/layouts/conversations/layout";
 
 const appName = import.meta.env.VITE_APP_NAME || "Laravel";
 
-const appLayoutPrefixes = ["escort/", "coin/", "conversations/", "dashboard"];
+const appLayoutPrefixes = ["dashboard", "escorts/"];
 
 type AuthWindow = Window & {
     __authUserId?: number | null;
@@ -57,9 +58,17 @@ void createInertiaApp({
         if (name.startsWith("auth/")) {
             return AuthLayout;
         }
-        
+
         if (name.startsWith("settings/")) {
             return [AppLayout, SettingsLayout];
+        }
+
+        if (name.startsWith("wallets/")) {
+            return [AppLayout, SettingsLayout];
+        }
+
+        if (name.startsWith("conversations/")) {
+            return [AppLayout, ConversationsLayout];
         }
 
         if (appLayoutPrefixes.some((prefix) => name.startsWith(prefix))) {

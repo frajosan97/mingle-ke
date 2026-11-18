@@ -7,7 +7,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class County extends Model
 {
-    protected $fillable = ['code', 'name', 'slug', 'lat', 'lng'];
+    protected $fillable = [
+        'code',
+        'name',
+        'slug',
+        'lat',
+        'lng'
+    ];
 
     public function towns(): HasMany
     {

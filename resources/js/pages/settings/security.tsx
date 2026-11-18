@@ -88,9 +88,9 @@ export default function Security(props: Props) {
         <>
             <Head title="Profile settings" />
 
-            <div className="space-y-10">
+            <div className="space-y-10 pb-8">
                 {/* ── Header ─────────────────────────────── */}
-                <div>
+                <header>
                     <h2 className="text-2xl font-bold tracking-tight text-foreground">
                         Security settings
                     </h2>
@@ -99,7 +99,7 @@ export default function Security(props: Props) {
                         passkeys. Keep your account secure with a long, random
                         password.
                     </p>
-                </div>
+                </header>
 
                 {/* ── Password ───────────────────────────── */}
                 <Form

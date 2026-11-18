@@ -29,7 +29,7 @@ class EscortController extends Controller
         $coords = $this->locations->resolve($request);
 
         if ($coords === null) {
-            return Inertia::render('escort/index', [
+            return Inertia::render('escorts/index', [
                 'profiles' => ['data' => [], 'links' => [], 'meta' => null],
                 'filters' => $filters,
                 'error' => 'Location required. Please allow location access.',
@@ -44,7 +44,7 @@ class EscortController extends Controller
             (int) $request->input('page', 1)
         );
 
-        return Inertia::render('escort/index', [
+        return Inertia::render('escorts/index', [
             'profiles' => [
                 'data' => ProfileCardResource::collection($results['data'])->resolve(),
                 'links' => $results['links'],
@@ -74,7 +74,7 @@ class EscortController extends Controller
             ->take(10)
             ->get();
 
-        return Inertia::render('escort/show', [
+        return Inertia::render('escorts/show', [
             'profile' => (new ProfileResource($user))->resolve(),
             'isOwner' => $isOwner,
             'canMessage' => $me !== null && !$isOwner && !$isBlocked,

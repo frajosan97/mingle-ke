@@ -44,8 +44,6 @@ export const FALLBACK_INVITE_CODE = "ZT6AZEKT";
 export const BASE_RATE = 1.0; // KES per coin before bonus
 export const MINIMUM_COINS = 20;
 
-// Tiered bonus for custom amounts — mirrors the pre-set packages so
-// custom buyers get the same rate as bundle buyers at the same volume.
 export function bonusForCoins(coins: number): number {
     if (coins >= 1000) return 0.28;
     if (coins >= 600) return 0.20;
@@ -57,9 +55,6 @@ export function bonusForCoins(coins: number): number {
     return 0.0;
 }
 
-// Effective price: user pays BASE_RATE per "paid coin" and gets the
-// bonus coin on top. i.e. price = coins / (1 + bonus) * BASE_RATE.
-// e.g. 100 coins at 10% bonus → pays 91 KES, gets 100 coins.
 export function priceForCoins(coins: number): number {
     if (coins <= 0) return 0;
     const bonus = bonusForCoins(coins);

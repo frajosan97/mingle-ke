@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class CoinTransaction extends Model
 {
@@ -13,50 +15,82 @@ class CoinTransaction extends Model
     public const TYPE_SPEND = 'spend';
     public const TYPE_REFUND = 'refund';
 
-    public const STATUS_PENDING = 'pending';
-    public const STATUS_PROCESSING = 'processing';
-    public const STATUS_COMPLETED = 'completed';
-    public const STATUS_FAILED = 'failed';
-    public const STATUS_CANCELLED = 'cancelled';
-
-    public const SOURCE_STK = 'stk';
-    public const SOURCE_C2B = 'c2b';
-
     protected $fillable = [
         'user_id',
         'type',
-        'status',
         'coins',
-        'amount_kes',
+        'mpesa_transaction_id',
         'package_id',
-        'method',
-        'source',
-        'checkout_request_id',
-        'merchant_request_id',
-        'mpesa_receipt',
-        'trans_id',
-        'bill_ref_number',
-        'phone',
+        'reference',
+        'description',
         'meta',
     ];
 
-    protected $casts = [
-        'meta' => 'array',
-        'amount_kes' => 'decimal:2',
-        'coins' => 'integer',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'user_id' => 'integer',
+            'coins' => 'integer',
+            'mpesa_transaction_id' => 'integer',
+            'package_id' => 'integer',
+            'meta' => 'array',
+        ];
+    }
 
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    public function isTerminal(): bool
+    public function mpesaTransaction(): BelongsTo
     {
-        return in_array($this->status, [
-            self::STATUS_COMPLETED,
-            self::STATUS_FAILED,
-            self::STATUS_CANCELLED,
+        return $this->belongsTo(MpesaTransaction::class);
+    }
+
+    public function isCredit(): bool
+    {
+        return in_array($this->type, [
+            self::TYPE_PURCHASE,
+            self::TYPE_BONUS,
+            self::TYPE_INVITE,
+            self::TYPE_REFUND,
         ], true);
+    }
+
+    public function isDebit(): bool
+    {
+        return $this->type === self::TYPE_SPEND;
+    }
+
+    public function scopeOfType(Builder $query, string $type): Builder
+    {
+        return $query->where('type', $type);
+    }
+
+    public function scopeCredits(Builder $query): Builder
+    {
+        return $query->whereIn('type', [
+            self::TYPE_PURCHASE,
+            self::TYPE_BONUS,
+            self::TYPE_INVITE,
+            self::TYPE_REFUND,
+        ]);
+    }
+
+    public function scopeDebits(Builder $query): Builder
+    {
+        return $query->where('type', self::TYPE_SPEND);
+    }
+
+    public function scopeForUser(Builder $query, int $userId): Builder
+    {
+        return $query->where('user_id', $userId);
+    }
+
+    public function scopeForReference(
+        Builder $query,
+        string $reference
+    ): Builder {
+        return $query->where('reference', $reference);
     }
 }

@@ -1,7 +1,7 @@
 // resources/js/components/coin/CheckoutRow.tsx
 import { Check, Loader2, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { PurchaseStatus } from "@/pages/coin";
+import type { PurchaseStatus } from "@/pages/coins";
 
 interface Props {
     canRecharge: boolean;

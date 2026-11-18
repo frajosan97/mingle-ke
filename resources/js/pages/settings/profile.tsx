@@ -150,9 +150,9 @@ export default function Profile({
         <>
             <Head title="Profile settings" />
 
-            <div className="space-y-10">
+            <div className="space-y-10 pb-8">
                 {/* ── Header ─────────────────────────────── */}
-                <div>
+                <header>
                     <h2 className="text-2xl font-bold tracking-tight text-foreground">
                         Profile details
                     </h2>
@@ -161,7 +161,7 @@ export default function Profile({
                         location are private and only used to match you with
                         people nearby.
                     </p>
-                </div>
+                </header>
 
                 <Form
                     action={ProfileController.update()}
@@ -378,7 +378,7 @@ export default function Profile({
 
                                     <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
                                         <Link
-                                            href="/escort/onboarding"
+                                            href="/escorts/onboarding"
                                             className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
                                         >
                                             Get started
@@ -451,7 +451,7 @@ export default function Profile({
                                 </div>
                             </div>
                             <Link
-                                href="/escort/profile"
+                                href="/escorts/profile"
                                 className="shrink-0 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent"
                             >
                                 Manage
@@ -459,11 +459,11 @@ export default function Profile({
                         </div>
                     </div>
                 )}
-            </div>
 
-            {/* Danger zone */}
-            <div className="mt-8 border-t border-border pb-8 pt-8">
-                <DeleteUser />
+                {/* Danger zone */}
+                <div className="mt-8 border-t border-border pt-8">
+                    <DeleteUser />
+                </div>
             </div>
         </>
     );

@@ -2,288 +2,830 @@
 
 namespace App\Services;
 
-use Exception;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class MpesaService
 {
     protected string $baseUrl;
+    protected string $env;
+
     protected string $shortcode;
     protected string $passkey;
-    protected string $key;
-    protected string $secret;
-    protected string $initiator;
+    protected string $consumerKey;
+    protected string $consumerSecret;
+
+    protected string $initiatorName;
     protected string $initiatorPassword;
     protected string $b2cShortcode;
-    protected string $stkCallbackUrl;
-    protected string $b2cResultUrl;
-    protected string $timeoutUrl;
+
+    protected string $callbackUrl;
+    protected string $resultUrl;
+    protected string $queueTimeoutUrl;
+
+    protected string $c2bValidationUrl;
+    protected string $c2bConfirmationUrl;
+
     protected ?string $securityCredential = null;
-    protected string $certificatePath;
+    protected ?string $certificatePath = null;
 
     public function __construct()
     {
-        $isProd = config('services.mpesa.env') === 'production';
+        $this->env = (string) config('services.mpesa.env', 'sandbox');
 
-        $this->certificatePath = $isProd
-            ? database_path('certs/ProductionCertificate.cer')
-            : database_path('certs/SandboxCertificate.cer');
-
-        $this->baseUrl = $isProd
+        $this->baseUrl = $this->env === 'production'
             ? 'https://api.safaricom.co.ke'
             : 'https://sandbox.safaricom.co.ke';
 
-        $this->shortcode = (string) config('services.mpesa.shortcode');
-        $this->passkey = (string) config('services.mpesa.passkey');
-        $this->key = (string) config('services.mpesa.consumer_key');
-        $this->secret = (string) config('services.mpesa.consumer_secret');
-        $this->initiator = (string) config('services.mpesa.initiator_name');
-        $this->initiatorPassword = (string) config('services.mpesa.initiator_password');
-        $this->b2cShortcode = (string) config('services.mpesa.b2c_shortcode');
-        $this->stkCallbackUrl = (string) config('services.mpesa.callback_url');
-        $this->b2cResultUrl = (string) config('services.mpesa.result_url');
-        $this->timeoutUrl = (string) config('services.mpesa.queue_timeout_url');
+        $this->shortcode = (string) config('services.mpesa.shortcode', '');
+        $this->passkey = (string) config('services.mpesa.passkey', '');
+
+        $this->consumerKey = (string) config('services.mpesa.consumer_key', '');
+        $this->consumerSecret = (string) config('services.mpesa.consumer_secret', '');
+
+        $this->initiatorName = (string) config('services.mpesa.initiator_name', '');
+        $this->initiatorPassword = (string) config('services.mpesa.initiator_password', '');
+
+        $this->b2cShortcode = (string) config(
+            'services.mpesa.b2c_shortcode',
+            ''
+        );
+
+        // STK callback
+        $this->callbackUrl = (string) config(
+            'services.mpesa.callback_url',
+            ''
+        );
+
+        // B2C callbacks
+        $this->resultUrl = (string) config(
+            'services.mpesa.result_url',
+            ''
+        );
+
+        $this->queueTimeoutUrl = (string) config(
+            'services.mpesa.queue_timeout_url',
+            ''
+        );
+
+        // C2B callbacks
+        $this->c2bValidationUrl = (string) config(
+            'services.mpesa.validation_url',
+            ''
+        );
+
+        $this->c2bConfirmationUrl = (string) config(
+            'services.mpesa.confirmation_url',
+            ''
+        );
+
+        $this->certificatePath = config(
+            'services.mpesa.certificate_path'
+        );
+
+        if (!$this->certificatePath) {
+            $this->certificatePath = $this->env === 'production'
+                ? storage_path('app/certs/ProductionCertificate.cer')
+                : storage_path('app/certs/SandboxCertificate.cer');
+        }
+
+        if ($this->initiatorPassword !== '') {
+            $this->securityCredential = $this->generateCredential(
+                $this->initiatorPassword
+            );
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Configuration
+    |--------------------------------------------------------------------------
+    */
+
+    public function isStkConfigured(): bool
+    {
+        return $this->shortcode !== ''
+            && $this->passkey !== ''
+            && $this->consumerKey !== ''
+            && $this->consumerSecret !== ''
+            && $this->callbackUrl !== '';
+    }
+
+    public function isB2cConfigured(): bool
+    {
+        return $this->consumerKey !== ''
+            && $this->consumerSecret !== ''
+            && $this->securityCredential !== null
+            && $this->initiatorName !== ''
+            && $this->b2cShortcode !== ''
+            && $this->resultUrl !== ''
+            && $this->queueTimeoutUrl !== '';
+    }
+
+    public function isC2bConfigured(): bool
+    {
+        return $this->shortcode !== ''
+            && $this->consumerKey !== ''
+            && $this->consumerSecret !== ''
+            && $this->c2bValidationUrl !== ''
+            && $this->c2bConfirmationUrl !== '';
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | B2C Security Credential
+    |--------------------------------------------------------------------------
+    */
+
+    protected function generateCredential(string $password): ?string
+    {
+        if (
+            !$this->certificatePath ||
+            !is_file($this->certificatePath)
+        ) {
+            Log::error('M-PESA certificate file not found.', [
+                'certificate_path' => $this->certificatePath,
+            ]);
+
+            return null;
+        }
 
         try {
-            if ($this->initiatorPassword !== '') {
-                $this->securityCredential = $this->generateCredential($this->initiatorPassword);
+            $certificate = file_get_contents($this->certificatePath);
+
+            if ($certificate === false) {
+                return null;
             }
-        } catch (\Throwable $e) {
-            Log::warning('M-PESA B2C credential generation failed (STK unaffected)', [
+
+            $publicKey = openssl_pkey_get_public($certificate);
+
+            if (!$publicKey) {
+                Log::error('Unable to load M-PESA public certificate.');
+
+                return null;
+            }
+
+            $encrypted = '';
+
+            $success = openssl_public_encrypt(
+                $password,
+                $encrypted,
+                $publicKey,
+                OPENSSL_PKCS1_PADDING
+            );
+
+            openssl_pkey_free($publicKey);
+
+            if (!$success) {
+                Log::error('Unable to encrypt M-PESA security credential.');
+
+                return null;
+            }
+
+            return base64_encode($encrypted);
+        } catch (Throwable $e) {
+            Log::error('M-PESA credential generation failed.', [
                 'error' => $e->getMessage(),
             ]);
-        }
-    }
 
-    protected function generateCredential(string $initiatorPassword): string
-    {
-        $cert = @file_get_contents($this->certificatePath);
-        if (!$cert) {
-            throw new Exception("Unable to read certificate at: {$this->certificatePath}");
-        }
-
-        $publicKey = openssl_pkey_get_public($cert);
-        if (!$publicKey) {
-            throw new Exception('Invalid public key in certificate.');
-        }
-
-        $encrypted = '';
-        $ok = openssl_public_encrypt($initiatorPassword, $encrypted, $publicKey, OPENSSL_PKCS1_PADDING);
-        if (!$ok) {
-            throw new Exception('Failed to encrypt initiator password.');
-        }
-
-        return base64_encode($encrypted);
-    }
-
-    public function generateToken(): ?string
-    {
-        try {
-            $credentials = base64_encode("{$this->key}:{$this->secret}");
-
-            $res = Http::withHeaders(['Authorization' => "Basic {$credentials}"])
-                ->timeout(15)
-                ->get("{$this->baseUrl}/oauth/v1/generate", ['grant_type' => 'client_credentials']);
-
-            return $res->successful() ? ($res->json()['access_token'] ?? null) : null;
-        } catch (\Throwable $e) {
-            Log::error('M-PESA token failed: ' . $e->getMessage());
             return null;
         }
     }
 
-    public function stkPush(
-        string $phone,
-        float $amount,
-        ?string $reference = null,
-        ?string $description = null
-    ): array {
-        $token = $this->generateToken();
-        if (!$token) {
-            return ['success' => false, 'message' => 'Failed to generate authentication token'];
+    /*
+    |--------------------------------------------------------------------------
+    | OAuth Access Token
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Get and cache an OAuth access token.
+     *
+     * Daraja tokens normally last 3600 seconds. Cache slightly
+     * below that duration to avoid using an expired token.
+     */
+    protected function generateToken(): ?string
+    {
+        if (
+            $this->consumerKey === '' ||
+            $this->consumerSecret === ''
+        ) {
+            return null;
         }
 
-        $phone = formatPhoneNumber($phone);
+        $cacheKey = 'mpesa.access_token.' . hash(
+            'sha256',
+            $this->consumerKey
+        );
+
+        try {
+            $cachedToken = Cache::get($cacheKey);
+
+            if (is_string($cachedToken) && $cachedToken !== '') {
+                return $cachedToken;
+            }
+
+            $response = Http::withBasicAuth(
+                $this->consumerKey,
+                $this->consumerSecret
+            )
+                ->acceptJson()
+                ->connectTimeout(10)
+                ->timeout(20)
+                ->get(
+                    $this->baseUrl . '/oauth/v1/generate',
+                    [
+                        'grant_type' => 'client_credentials',
+                    ]
+                );
+
+            if (!$response->successful()) {
+                Log::error('M-PESA OAuth request failed.', [
+                    'status' => $response->status(),
+                    'body' => $response->json(),
+                ]);
+
+                return null;
+            }
+
+            $token = $response->json('access_token');
+
+            if (!is_string($token) || $token === '') {
+                Log::error('M-PESA OAuth response did not contain an access token.', [
+                    'body' => $response->json(),
+                ]);
+
+                return null;
+            }
+
+            Cache::put($cacheKey, $token, now()->addSeconds(3500));
+
+            return $token;
+        } catch (Throwable $e) {
+            Log::error('M-PESA OAuth exception.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | STK Push
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Initiate an STK Push request.
+     *
+     * A token failure occurs before the STK request is submitted,
+     * so it is a definite initiation failure.
+     *
+     * A timeout or server error after submitting the STK request
+     * may have an uncertain outcome.
+     */
+    public function stkPush(
+        string $phone,
+        int $amount,
+        string $accountReference,
+        string $transactionDesc
+    ): array {
+        if (!$this->isStkConfigured()) {
+            return [
+                'success' => false,
+                'uncertain' => false,
+                'message' => 'M-PESA STK configuration is incomplete.',
+            ];
+        }
+
+        if ($amount <= 0) {
+            return [
+                'success' => false,
+                'uncertain' => false,
+                'message' => 'Invalid payment amount.',
+            ];
+        }
+
+        $phone = $this->formatPhone($phone);
+
+        if (!$phone) {
+            return [
+                'success' => false,
+                'uncertain' => false,
+                'message' => 'Invalid M-PESA phone number.',
+            ];
+        }
+
+        $token = $this->generateToken();
+
+        if (!$token) {
+            return [
+                'success' => false,
+                'uncertain' => false,
+                'message' => 'Unable to authenticate with M-PESA. Please try again.',
+            ];
+        }
+
         $timestamp = now()->format('YmdHis');
-        $password = base64_encode($this->shortcode . $this->passkey . $timestamp);
+
+        $password = base64_encode(
+            $this->shortcode . $this->passkey . $timestamp
+        );
 
         $payload = [
             'BusinessShortCode' => $this->shortcode,
             'Password' => $password,
             'Timestamp' => $timestamp,
             'TransactionType' => 'CustomerPayBillOnline',
-            'Amount' => (int) round($amount),
+            'Amount' => $amount,
             'PartyA' => $phone,
             'PartyB' => $this->shortcode,
             'PhoneNumber' => $phone,
-            'CallBackURL' => $this->stkCallbackUrl,
-            'AccountReference' => $reference ?? substr($phone, -9),
-            'TransactionDesc' => $description ?? 'MingleKE coins top-up',
+            'CallBackURL' => $this->callbackUrl,
+            'AccountReference' => $accountReference,
+            'TransactionDesc' => $transactionDesc,
         ];
 
         try {
-            $res = Http::withToken($token)->timeout(30)
-                ->post("{$this->baseUrl}/mpesa/stkpush/v1/processrequest", $payload);
+            $response = Http::withToken($token)
+                ->acceptJson()
+                ->asJson()
+                ->connectTimeout(10)
+                ->timeout(30)
+                ->post(
+                    $this->baseUrl . '/mpesa/stkpush/v1/processrequest',
+                    $payload
+                );
 
-            if (!$res->successful()) {
-                Log::warning('STK push failed', ['status' => $res->status(), 'body' => $res->body()]);
-                return ['success' => false, 'message' => 'M-PESA rejected the request. Try again.'];
-            }
+            $body = $response->json() ?? [];
 
-            $body = $res->json();
+            if (!$response->successful()) {
+                $uncertain = $response->serverError()
+                    || in_array($response->status(), [408, 429], true);
 
-            if (($body['ResponseCode'] ?? null) !== '0') {
+                Log::error('M-PESA STK HTTP error.', [
+                    'status' => $response->status(),
+                    'body' => $body,
+                    'uncertain' => $uncertain,
+                ]);
+
                 return [
                     'success' => false,
-                    'message' => $body['ResponseDescription'] ?? 'Request not accepted by M-PESA.',
+                    'uncertain' => $uncertain,
+                    'message' => $body['errorMessage']
+                        ?? 'M-PESA could not confirm the STK request.',
+                    'raw' => $body,
+                ];
+            }
+
+            $responseCode = $body['ResponseCode'] ?? null;
+
+            if ($responseCode === null || $responseCode === '') {
+                Log::warning('M-PESA STK response did not contain ResponseCode.', [
+                    'body' => $body,
+                ]);
+
+                return [
+                    'success' => false,
+                    'uncertain' => true,
+                    'message' => 'M-PESA returned an incomplete response. Payment status must be verified.',
+                    'raw' => $body,
+                ];
+            }
+
+            if ((string) $responseCode !== '0') {
+                return [
+                    'success' => false,
+                    'uncertain' => false,
+                    'message' => $body['ResponseDescription']
+                        ?? $body['errorMessage']
+                        ?? 'M-PESA rejected the STK request.',
+                    'raw' => $body,
+                ];
+            }
+
+            $checkoutRequestId = $body['CheckoutRequestID'] ?? null;
+
+            if (!is_string($checkoutRequestId) || $checkoutRequestId === '') {
+                Log::warning('M-PESA accepted STK request without CheckoutRequestID.', [
+                    'body' => $body,
+                ]);
+
+                return [
+                    'success' => false,
+                    'uncertain' => true,
+                    'message' => 'M-PESA accepted the request but did not return a checkout ID. Payment status must be verified.',
+                    'raw' => $body,
                 ];
             }
 
             return [
                 'success' => true,
-                'checkout_request_id' => $body['CheckoutRequestID'] ?? null,
+                'uncertain' => false,
+                'checkout_request_id' => $checkoutRequestId,
                 'merchant_request_id' => $body['MerchantRequestID'] ?? null,
+                'customer_message' => $body['CustomerMessage'] ?? null,
                 'raw' => $body,
             ];
-        } catch (\Throwable $e) {
-            Log::error('STK push exception: ' . $e->getMessage());
-            return ['success' => false, 'message' => 'Could not reach M-PESA. Try again.'];
+        } catch (Throwable $e) {
+            Log::error('M-PESA STK request exception.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'uncertain' => true,
+                'message' => 'The STK request outcome is uncertain. Please wait while its status is verified.',
+            ];
         }
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | STK Query
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Query the status of an STK request.
+     *
+     * ResponseCode = query request result.
+     * ResultCode = actual customer payment result.
+     */
 
     public function stkQuery(string $checkoutRequestId): array
     {
+        if (
+            $this->shortcode === '' ||
+            $this->passkey === '' ||
+            trim($checkoutRequestId) === ''
+        ) {
+            return [
+                'success' => false,
+                'message' => 'STK query configuration or checkout ID is missing.',
+            ];
+        }
+
         $token = $this->generateToken();
+
         if (!$token) {
-            return ['success' => false, 'message' => 'Failed to generate authentication token'];
+            return [
+                'success' => false,
+                'message' => 'Unable to authenticate with M-PESA.',
+            ];
         }
 
         $timestamp = now()->format('YmdHis');
-        $password = base64_encode($this->shortcode . $this->passkey . $timestamp);
 
-        try {
-            $res = Http::withToken($token)->timeout(15)->post(
-                "{$this->baseUrl}/mpesa/stkpushquery/v1/query",
-                [
-                    'BusinessShortCode' => $this->shortcode,
-                    'Password' => $password,
-                    'Timestamp' => $timestamp,
-                    'CheckoutRequestID' => $checkoutRequestId,
-                ]
-            );
-
-            if (!$res->successful()) {
-                return ['success' => false, 'message' => 'Query failed'];
-            }
-
-            $body = $res->json();
-            return [
-                'success' => true,
-                'result_code' => (int) ($body['ResultCode'] ?? -1),
-                'result_desc' => $body['ResultDesc'] ?? '',
-                'raw' => $body,
-            ];
-        } catch (\Throwable $e) {
-            Log::error('STK query failed: ' . $e->getMessage());
-            return ['success' => false, 'message' => 'Query exception'];
-        }
-    }
-
-    /**
-     * B2C payout (used later for escort/creator withdrawals).
-     * The caller is responsible for persisting the result against
-     * whatever ledger row tracks the payout (e.g. a Withdrawal model).
-     */
-    public function processB2C(
-        string $phone,
-        float $amount,
-        ?string $remarks = 'B2C - Withdrawal',
-        ?string $occasion = 'Payout'
-    ): array {
-        if (!$this->securityCredential) {
-            return ['success' => false, 'message' => 'B2C security credential unavailable'];
-        }
-
-        $token = $this->generateToken();
-        if (!$token) {
-            return ['success' => false, 'message' => 'Failed to generate authentication token'];
-        }
+        $password = base64_encode(
+            $this->shortcode . $this->passkey . $timestamp
+        );
 
         $payload = [
-            'InitiatorName' => $this->initiator,
-            'SecurityCredential' => $this->securityCredential,
-            'CommandID' => config('mpesa.b2c_command_id', 'BusinessPayment'),
-            'Amount' => round($amount, 2),
-            'PartyA' => $this->b2cShortcode,
-            'PartyB' => formatPhoneNumber($phone),
-            'Remarks' => $remarks,
-            'QueueTimeOutURL' => $this->timeoutUrl,
-            'ResultURL' => $this->b2cResultUrl,
-            'Occasion' => $occasion,
+            'BusinessShortCode' => $this->shortcode,
+            'Password' => $password,
+            'Timestamp' => $timestamp,
+            'CheckoutRequestID' => trim($checkoutRequestId),
         ];
 
         try {
-            $res = Http::withToken($token)->timeout(30)
-                ->post("{$this->baseUrl}/mpesa/b2c/v1/paymentrequest", $payload);
+            $response = Http::withToken($token)
+                ->acceptJson()
+                ->asJson()
+                ->connectTimeout(10)
+                ->timeout(30)
+                ->post(
+                    $this->baseUrl . '/mpesa/stkpushquery/v1/query',
+                    $payload
+                );
 
-            if (!$res->successful()) {
-                return ['success' => false, 'message' => 'Error initiating B2C, try again.'];
-            }
+            $body = $response->json();
 
-            $data = $res->json();
+            if (!$response->successful()) {
+                $body = is_array($body)
+                    ? $body
+                    : ['response_body' => $response->body()];
 
-            return [
-                'success' => true,
-                'message' => 'B2C initiated successfully',
-                'conversation_id' => $data['ConversationID'] ?? null,
-                'originator_conversation_id' => $data['OriginatorConversationID'] ?? null,
-                'raw' => $data,
-            ];
-        } catch (\Throwable $e) {
-            Log::error('B2C exception: ' . $e->getMessage());
-            return ['success' => false, 'message' => 'Could not reach M-PESA.'];
-        }
-    }
-
-    /**
-     * Register C2B Validation + Confirmation URLs with Safaricom.
-     * Call once per environment via `php artisan mpesa:register-c2b`.
-     */
-    public function registerC2bUrls(string $validationUrl, string $confirmationUrl): array
-    {
-        $token = $this->generateToken();
-        if (!$token) {
-            return ['success' => false, 'message' => 'Failed to generate authentication token'];
-        }
-
-        try {
-            $res = Http::withToken($token)->timeout(20)->post(
-                "{$this->baseUrl}/mpesa/c2b/v1/registerurl",
-                [
-                    'ShortCode' => $this->shortcode,
-                    'ResponseType' => 'Completed',
-                    'ConfirmationURL' => $confirmationUrl,
-                    'ValidationURL' => $validationUrl,
-                ]
-            );
-
-            if (!$res->successful()) {
-                Log::warning('C2B URL registration failed', [
-                    'status' => $res->status(),
-                    'body' => $res->body(),
+                Log::error('M-PESA STK Query HTTP failure.', [
+                    'environment' => $this->env,
+                    'http_status' => $response->status(),
+                    'checkout_request_id' => $checkoutRequestId,
+                    'response' => $body,
                 ]);
+
                 return [
                     'success' => false,
-                    'message' => 'M-PESA rejected the registration.',
-                    'raw' => $res->json(),
+                    'message' => 'M-PESA STK query HTTP request failed. HTTP ' . $response->status(),
+                    'http_status' => $response->status(),
+                    'raw' => $body,
                 ];
             }
 
-            return ['success' => true, 'raw' => $res->json()];
-        } catch (\Throwable $e) {
-            Log::error('C2B URL registration exception: ' . $e->getMessage());
-            return ['success' => false, 'message' => 'Could not reach M-PESA.'];
+            $body = is_array($body) ? $body : [];
+
+            if ((string) ($body['ResponseCode'] ?? '') !== '0') {
+                $message = $body['ResponseDescription']
+                    ?? $body['errorMessage']
+                    ?? 'M-PESA could not process the STK query.';
+
+                Log::warning('M-PESA STK Query rejected.', [
+                    'checkout_request_id' => $checkoutRequestId,
+                    'response' => $body,
+                ]);
+
+                return [
+                    'success' => false,
+                    'message' => $message,
+                    'raw' => $body,
+                ];
+            }
+
+            $resultCode = $body['ResultCode'] ?? null;
+
+            return [
+                'success' => true,
+                'result_code' => $resultCode !== null && $resultCode !== ''
+                    ? (int) $resultCode
+                    : null,
+                'result_desc' => $body['ResultDesc'] ?? '',
+                'receipt' => $body['MpesaReceiptNumber'] ?? null,
+                'raw' => $body,
+            ];
+
+        } catch (Throwable $e) {
+            Log::error('M-PESA STK Query exception.', [
+                'checkout_request_id' => $checkoutRequestId,
+                'environment' => $this->env,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Unable to query M-PESA: ' . $e->getMessage(),
+            ];
         }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | B2C Payment
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Initiate a B2C payment.
+     *
+     * A successful response means the request was accepted,
+     * not that the recipient has received the money.
+     * Wait for the B2C result callback before completing
+     * the withdrawal transaction.
+     */
+    public function processB2C(
+        string $phone,
+        int $amount,
+        string $commandId = 'BusinessPayment',
+        string $remarks = 'Mingle payment',
+        string $occasion = ''
+    ): array {
+        if (!$this->isB2cConfigured()) {
+            return [
+                'success' => false,
+                'uncertain' => false,
+                'message' => 'M-PESA B2C configuration is incomplete.',
+            ];
+        }
+
+        if ($amount <= 0) {
+            return [
+                'success' => false,
+                'uncertain' => false,
+                'message' => 'Invalid B2C amount.',
+            ];
+        }
+
+        $phone = $this->formatPhone($phone);
+
+        if (!$phone) {
+            return [
+                'success' => false,
+                'uncertain' => false,
+                'message' => 'Invalid B2C phone number.',
+            ];
+        }
+
+        $token = $this->generateToken();
+
+        if (!$token) {
+            return [
+                'success' => false,
+                'uncertain' => false,
+                'message' => 'Unable to authenticate with M-PESA.',
+            ];
+        }
+
+        try {
+            $response = Http::withToken($token)
+                ->acceptJson()
+                ->asJson()
+                ->connectTimeout(10)
+                ->timeout(30)
+                ->post(
+                    $this->baseUrl . '/mpesa/b2c/v3/paymentrequest',
+                    [
+                        'InitiatorName' => $this->initiatorName,
+                        'SecurityCredential' => $this->securityCredential,
+                        'CommandID' => $commandId,
+                        'Amount' => $amount,
+                        'PartyA' => $this->b2cShortcode,
+                        'PartyB' => $phone,
+                        'Remarks' => $remarks,
+                        'QueueTimeOutURL' => $this->queueTimeoutUrl,
+                        'ResultURL' => $this->resultUrl,
+                        'Occasion' => $occasion,
+                    ]
+                );
+
+            $body = $response->json() ?? [];
+
+            if (!$response->successful()) {
+                $uncertain = $response->serverError()
+                    || in_array($response->status(), [408, 429], true);
+
+                Log::error('M-PESA B2C HTTP error.', [
+                    'status' => $response->status(),
+                    'body' => $body,
+                    'uncertain' => $uncertain,
+                ]);
+
+                return [
+                    'success' => false,
+                    'uncertain' => $uncertain,
+                    'message' => $body['errorMessage']
+                        ?? 'M-PESA B2C request failed.',
+                    'raw' => $body,
+                ];
+            }
+
+            $responseCode = $body['ResponseCode'] ?? null;
+
+            if ($responseCode === null || $responseCode === '') {
+                return [
+                    'success' => false,
+                    'uncertain' => true,
+                    'message' => 'M-PESA returned an incomplete B2C response. Verify the request status.',
+                    'raw' => $body,
+                ];
+            }
+
+            if ((string) $responseCode !== '0') {
+                return [
+                    'success' => false,
+                    'uncertain' => false,
+                    'message' => $body['ResponseDescription']
+                        ?? $body['errorMessage']
+                        ?? 'M-PESA rejected the B2C request.',
+                    'raw' => $body,
+                ];
+            }
+
+            return [
+                'success' => true,
+                'uncertain' => false,
+                'conversation_id' => $body['ConversationID'] ?? null,
+                'originator_conversation_id' => $body['OriginatorConversationID'] ?? null,
+                'message' => $body['ResponseDescription'] ?? 'B2C request accepted.',
+                'raw' => $body,
+            ];
+        } catch (Throwable $e) {
+            Log::error('M-PESA B2C exception.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'uncertain' => true,
+                'message' => 'The B2C request outcome is uncertain. Verify its status before retrying.',
+            ];
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | C2B URL Registration
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Register C2B validation and confirmation URLs.
+     *
+     * These must be separate endpoints:
+     * - Validation URL: validates an incoming payment.
+     * - Confirmation URL: receives a completed payment.
+     */
+    public function registerC2bUrls(): array
+    {
+        if (!$this->isC2bConfigured()) {
+            return [
+                'success' => false,
+                'message' => 'M-PESA C2B configuration is incomplete.',
+            ];
+        }
+
+        $token = $this->generateToken();
+
+        if (!$token) {
+            return [
+                'success' => false,
+                'message' => 'Unable to authenticate with M-PESA.',
+            ];
+        }
+
+        try {
+            $response = Http::withToken($token)
+                ->acceptJson()
+                ->asJson()
+                ->connectTimeout(10)
+                ->timeout(30)
+                ->post(
+                    $this->baseUrl . '/mpesa/c2b/v1/registerurl',
+                    [
+                        'ShortCode' => $this->shortcode,
+                        'ResponseType' => 'Completed',
+                        'ConfirmationURL' => $this->c2bConfirmationUrl,
+                        'ValidationURL' => $this->c2bValidationUrl,
+                    ]
+                );
+
+            $body = $response->json() ?? [];
+
+            if (!$response->successful()) {
+                return [
+                    'success' => false,
+                    'message' => $body['errorMessage']
+                        ?? 'Unable to register C2B URLs.',
+                    'raw' => $body,
+                ];
+            }
+
+            $success = (string) ($body['ResponseCode'] ?? '') === '0';
+
+            return [
+                'success' => $success,
+                'message' => $body['ResponseDescription']
+                    ?? ($success
+                        ? 'C2B URLs registered successfully.'
+                        : 'M-PESA did not confirm C2B URL registration.'),
+                'raw' => $body,
+            ];
+        } catch (Throwable $e) {
+            Log::error('M-PESA C2B URL registration exception.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'C2B URL registration failed.',
+            ];
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Phone Formatting
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Convert a Kenyan phone number to 254XXXXXXXXX.
+     *
+     * Accepts:
+     * 07XXXXXXXX
+     * 01XXXXXXXX
+     * 2547XXXXXXXX
+     * 2541XXXXXXXX
+     */
+    protected function formatPhone(string $phone): ?string
+    {
+        $phone = preg_replace('/\D+/', '', $phone);
+
+        if (!$phone) {
+            return null;
+        }
+
+        if (str_starts_with($phone, '0')) {
+            $phone = '254' . substr($phone, 1);
+        } elseif (
+            str_starts_with($phone, '7') ||
+            str_starts_with($phone, '1')
+        ) {
+            $phone = '254' . $phone;
+        }
+
+        return preg_match('/^254[17]\d{8}$/', $phone)
+            ? $phone
+            : null;
     }
 }

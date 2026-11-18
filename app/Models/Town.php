@@ -7,7 +7,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Town extends Model
 {
-    protected $fillable = ['county_id', 'name', 'slug', 'lat', 'lng', 'is_major'];
+    protected $fillable = [
+        'county_id',
+        'name',
+        'slug',
+        'lat',
+        'lng',
+        'is_major'
+    ];
 
     protected $casts = [
         'is_major' => 'boolean',

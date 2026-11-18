@@ -8,8 +8,8 @@ import CTA from "@/components/partials/welcome/cta";
 import Footer from "@/layouts/guest/guest-footer";
 import type { StatItem } from "@/components/partials/welcome/data";
 import type { Auth } from "@/types";
-import EscortsListing from "@/components/partials/discover/escorts-listing";
-import { Profile } from "@/components/partials/discover/profile-card";
+import EscortsListing from "@/components/partials/escorts/escorts-listing";
+import { Profile } from "@/components/partials/escorts/profile-card";
 
 interface WelcomeProps {
     auth: { user: Auth["user"] | null };
@@ -35,7 +35,7 @@ export default function Welcome() {
                     tier="premium"
                     title="Top verified escorts near you"
                     subtitle="Prioritized, verified, and ready to chat."
-                    seeAllHref="/discover?tier=premium"
+                    seeAllHref="/escorts?tier=premium"
                     profiles={premium}
                 />
 
@@ -46,7 +46,7 @@ export default function Welcome() {
                     tier="regular"
                     title="More people nearby"
                     subtitle="New members joining every day."
-                    seeAllHref="/discover?tier=regular"
+                    seeAllHref="/escorts?tier=regular"
                     profiles={regular}
                 />
 

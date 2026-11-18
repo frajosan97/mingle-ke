@@ -14,7 +14,7 @@ export function useAutoLocation() {
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 sent.current = true;
-                router.post('/location/update', {
+                router.post('/escorts/location/update', {
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude,
                 }, { preserveScroll: true, preserveState: true });
