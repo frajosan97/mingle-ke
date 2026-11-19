@@ -4,13 +4,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-
-    {{-- CSRF meta tag — Inertia/axios reads XSRF-TOKEN cookie automatically,
-    but this meta is a reliable fallback for raw fetch() calls. --}}
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    {{-- Auth globals for real-time chat — must run before Inertia hydrates.
-    Read by conversation-list.tsx / show.tsx for sender-side dedupe. --}}
     <script>
         window.__authUserId = {{ auth()->id() ?? 'null' }};
         window.__authUserName = @json(auth()->user()?->name);

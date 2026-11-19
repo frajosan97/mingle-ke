@@ -5,7 +5,6 @@ use App\Http\Controllers\DeviceStatusController;
 use App\Http\Controllers\EscortController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\MessageController;
-use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\WalletController;
 use Illuminate\Support\Facades\Route;
 
@@ -23,9 +22,8 @@ Route::prefix('escorts')
     ->controller(EscortController::class)
     ->group(function () {
         Route::get('/', 'index')->name('index');
-        Route::get('/{user}', 'show')->name('show');
-        Route::post('/location/update', 'updateLocation')
-            ->name('location.update');
+        Route::get('/{user}', 'show')->whereNumber('user')->name('show');
+        Route::post('/location/update', 'updateLocation')->name('location.update');
     });
 
 /*
@@ -37,8 +35,7 @@ Route::prefix('escorts')
 Route::middleware(['auth', 'verified'])->group(function () {
 
     // Dashboard
-    Route::inertia('/dashboard', 'dashboard')
-        ->name('dashboard');
+    Route::inertia('/dashboard', 'dashboard')->name('dashboard');
 
     /*
     |--------------------------------------------------------------------------
@@ -49,7 +46,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('conversations')
         ->name('conversations.')
         ->group(function () {
-
             Route::controller(ConversationController::class)->group(function () {
                 Route::get('/', 'index')->name('index');
                 Route::get('/create', 'create')->name('create');
@@ -57,17 +53,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
             });
 
             Route::controller(MessageController::class)->group(function () {
-                Route::post('/{conversation}/messages', 'store')
-                    ->name('messages.store');
-
-                Route::post('/{conversation}/read', 'markRead')
-                    ->name('read');
-
-                Route::post('/{conversation}/delivered', 'markDelivered')
-                    ->name('delivered');
-
-                Route::delete('/messages/{message}', 'destroy')
-                    ->name('messages.destroy');
+                Route::post('/{conversation}/messages', 'store')->name('messages.store');
+                Route::post('/{conversation}/read', 'markRead')->name('read');
+                Route::post('/{conversation}/delivered', 'markDelivered')->name('delivered');
+                Route::delete('/messages/{message}', 'destroy')->name('messages.destroy');
             });
         });
 
@@ -79,36 +68,26 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::prefix('escorts')
         ->name('escorts.')
+        ->controller(EscortController::class)
         ->group(function () {
-
-            Route::post('/{user}/like', [EscortController::class, 'like'])
-                ->name('like');
-
-            Route::get('/{user}/onboarding', [ProfileController::class, 'escortOnboarding'])
-                ->name('onboarding');
-
-            Route::post('/{user}/onboarding', [ProfileController::class, 'storeEscortOnboarding'])
-                ->name('onboarding.store');
+            Route::get('/create', 'create')->name('create');
+            Route::post('/', 'store')->name('store');
+            Route::put('/{user}', 'update')->whereNumber('user')->name('update');
+            Route::post('/{user}/like', 'like')->whereNumber('user')->name('like');
+            Route::get('/manage', 'manage')->name('manage');
         });
 
     /*
     |--------------------------------------------------------------------------
-    | Coins
+    | Wallet
     |--------------------------------------------------------------------------
     */
-
-    /*
-|--------------------------------------------------------------------------
-| Wallet
-|--------------------------------------------------------------------------
-*/
 
     Route::prefix('wallets')
         ->name('wallets.')
         ->controller(WalletController::class)
         ->group(function () {
             Route::get('/', 'index')->name('index');
-
             Route::get('/balance', 'balance')->name('balance');
 
             Route::prefix('coins')->name('coins.')->group(function () {
@@ -116,20 +95,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 Route::post('/purchase', 'purchaseCoins')->name('purchase');
             });
 
-            Route::get('/points', [WalletController::class, 'points'])
-                ->name('points');
+            Route::get('/points', 'points')->name('points');
 
             Route::get('/transactions', 'transactions')->name('transactions');
-            Route::get('/transactions/{transaction}/status', 'status')
-                ->name('transactions.status');
-            Route::post('/transactions/{transaction}/retry', 'retry')
-                ->name('transactions.retry');
-            Route::post('/transactions/{transaction}/cancel', 'cancel')
-                ->name('transactions.cancel');
+            Route::get('/transactions/{transaction}/status', 'status')->name('transactions.status');
+            Route::post('/transactions/{transaction}/retry', 'retry')->name('transactions.retry');
+            Route::post('/transactions/{transaction}/cancel', 'cancel')->name('transactions.cancel');
 
             Route::get('/withdrawals', 'withdrawals')->name('withdrawals');
-            Route::post('/withdrawals/request', 'requestWithdrawal')
-                ->name('withdrawals.request');
+            Route::post('/withdrawals/request', 'requestWithdrawal')->name('withdrawals.request');
         });
 
     /*
@@ -143,10 +117,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->controller(DeviceStatusController::class)
         ->group(function () {
             Route::get('/', 'index')->name('index');
-
-            Route::post('/', 'update')
-                ->middleware('throttle:60,1')
-                ->name('update');
+            Route::post('/', 'update')->middleware('throttle:60,1')->name('update');
         });
 });
 

@@ -17,6 +17,7 @@ use Inertia\Inertia;
 */
 Route::middleware('auth')->group(function () {
     // Route::redirect('/settings', '/settings/profile');
+    
     Route::get('/settings', function () {
         return Inertia::render('settings/index');
     })->name('settings.index');

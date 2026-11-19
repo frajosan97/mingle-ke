@@ -48,13 +48,13 @@ export function PageHeader({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, ease: easeOut }}
             className={cn(
-                "flex flex-col gap-4 md:flex-row md:items-start md:justify-between",
+                "flex flex-col gap-3 md:flex-row md:items-start md:justify-between",
                 className,
             )}
         >
             {/* Left Side: Icon, Title, Description, Meta, Statuses */}
             <div className="flex flex-col gap-3">
-                <div className="flex items-start gap-4">
+                <div className="flex items-start gap-3">
                     {icon && (
                         <div className="flex shrink-0 items-center">{icon}</div>
                     )}

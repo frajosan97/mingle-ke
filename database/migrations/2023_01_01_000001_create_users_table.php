@@ -188,10 +188,6 @@ return new class extends Migration {
             $table->boolean('incall')->default(false);
             $table->boolean('outcall')->default(false);
 
-            // Media
-            $table->string('cover_image')->nullable();
-            $table->json('gallery')->nullable();
-
             // Moderation
             $table->boolean('is_approved')->default(false);
             $table->timestamp('approved_at')->nullable();
@@ -238,6 +234,87 @@ return new class extends Migration {
                 ['listing_tier', 'is_approved'],
                 'profiles_listing_tier_approved_idx'
             );
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | User Images
+        |--------------------------------------------------------------------------
+        */
+        Schema::create('user_images', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('user_id')
+                ->constrained('users')
+                ->cascadeOnDelete();
+
+            $table->string('path');
+            $table->string('disk', 20)->default('public');
+            $table->string('url')->nullable();
+
+            $table->unsignedInteger('width')->nullable();
+            $table->unsignedInteger('height')->nullable();
+            $table->unsignedInteger('size_bytes')->nullable();
+            $table->string('mime_type', 100)->nullable();
+
+            $table->boolean('is_cover')->default(false);
+            $table->unsignedInteger('sort_order')->default(0);
+
+            $table->enum('status', ['pending', 'approved', 'rejected'])
+                ->default('pending');
+            $table->timestamp('approved_at')->nullable();
+            $table->string('rejection_reason')->nullable();
+
+            $table->timestamps();
+            $table->softDeletes();
+
+            $table->index(['user_id', 'is_cover'], 'user_images_user_cover_idx');
+            $table->index(['user_id', 'sort_order'], 'user_images_user_sort_idx');
+            $table->index(['user_id', 'status'], 'user_images_user_status_idx');
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | User Videos
+        |--------------------------------------------------------------------------
+        */
+        Schema::create('user_videos', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('user_id')
+                ->constrained('users')
+                ->cascadeOnDelete();
+
+            $table->string('path');
+            $table->string('disk', 20)->default('public');
+            $table->string('url')->nullable();
+            $table->string('thumbnail_path')->nullable();
+
+            $table->unsignedInteger('duration_seconds')->nullable();
+            $table->unsignedInteger('width')->nullable();
+            $table->unsignedInteger('height')->nullable();
+            $table->unsignedInteger('size_bytes')->nullable();
+            $table->string('mime_type', 100)->nullable();
+
+            $table->unsignedInteger('sort_order')->default(0);
+
+            $table->enum('status', ['pending', 'approved', 'rejected'])
+                ->default('pending');
+            $table->timestamp('approved_at')->nullable();
+            $table->string('rejection_reason')->nullable();
+
+            $table->enum('processing_status', [
+                'pending',
+                'processing',
+                'ready',
+                'failed',
+            ])->default('ready');
+
+            $table->timestamps();
+            $table->softDeletes();
+
+            $table->index(['user_id', 'sort_order'], 'user_videos_user_sort_idx');
+            $table->index(['user_id', 'status'], 'user_videos_user_status_idx');
         });
 
         /*
@@ -643,6 +720,8 @@ return new class extends Migration {
         Schema::dropIfExists('coin_transactions');
         Schema::dropIfExists('mpesa_transactions');
 
+        Schema::dropIfExists('user_videos');
+        Schema::dropIfExists('user_images');
         Schema::dropIfExists('user_profiles');
         Schema::dropIfExists('pricing_plans');
         Schema::dropIfExists('users');

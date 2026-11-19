@@ -32,6 +32,7 @@ use Rappasoft\LaravelAuthenticationLog\Traits\AuthenticationLoggable;
  * @property string $email
  * @property string|null $avatar
  * @property string|null $avatar_url
+ * @property string|null $cover_image
  * @property Carbon|null $email_verified_at
  * @property string|null $password
  * @property string|null $two_factor_secret
@@ -60,9 +61,14 @@ use Rappasoft\LaravelAuthenticationLog\Traits\AuthenticationLoggable;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
+ * @property-read int $points_balance
  *
  * @property-read UserProfile|null $profile
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, UserImage> $images
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, UserVideo> $videos
+ * @property-read UserImage|null $approvedCoverImage
  * @property-read \Illuminate\Database\Eloquent\Collection<int, UserLike> $likes
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, UserLike> $receivedLikes
  * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReview> $reviewsWritten
  * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReview> $reviewsReceived
  * @property-read \Illuminate\Database\Eloquent\Collection<int, User> $blockedUsers
@@ -76,11 +82,13 @@ use Rappasoft\LaravelAuthenticationLog\Traits\AuthenticationLoggable;
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MessageAttachment> $messageAttachments
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MessageRead> $messageReads
  * @property-read \Illuminate\Database\Eloquent\Collection<int, CoinTransaction> $coinTransactions
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, PointTransaction> $pointTransactions
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $mpesaTransactions
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $coinPurchases
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $completedCoinPurchases
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $pendingCoinPurchases
  * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $escortListingPayments
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $pendingEscortPayments
  * @property-read MpesaTransaction|null $latestEscortPayment
  */
 #[Fillable([
@@ -130,9 +138,28 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     /** Coins granted once on account creation. */
     public const WELCOME_COINS = 5;
 
+    /**
+     * Statuses that represent a still-in-flight M-Pesa transaction.
+     */
+    public const PENDING_MPESA_STATUSES = [
+        MpesaTransaction::STATUS_PENDING,
+        MpesaTransaction::STATUS_PROCESSING,
+        MpesaTransaction::STATUS_UNKNOWN,
+    ];
+
     protected $appends = [
         'avatar_url',
+        'cover_image',
     ];
+
+    /** Cached points balance to avoid re-querying on every access. */
+    protected ?int $cachedPointsBalance = null;
+
+    /** Cached cover image URL to avoid re-querying on every access. */
+    protected ?string $cachedCoverImage = null;
+
+    /** Whether cover_image has been resolved yet (distinguishes "not loaded" from "null"). */
+    protected bool $coverImageResolved = false;
 
     // ================================================================
     // BOOT HOOKS
@@ -155,10 +182,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
                     return;
                 }
 
-                $lockedUser->increment(
-                    'coins',
-                    self::WELCOME_COINS
-                );
+                $lockedUser->increment('coins', self::WELCOME_COINS);
 
                 CoinTransaction::create([
                     'user_id' => $lockedUser->id,
@@ -166,9 +190,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
                     'coins' => self::WELCOME_COINS,
                     'reference' => 'WELCOME-' . $lockedUser->id,
                     'description' => 'Welcome bonus',
-                    'meta' => [
-                        'source' => 'registration',
-                    ],
+                    'meta' => ['source' => 'registration'],
                 ]);
             });
         });
@@ -184,19 +206,15 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
-
             'subscription_started_at' => 'datetime',
             'subscription_expires_at' => 'datetime',
             'last_active_at' => 'datetime',
             'last_seen_at' => 'datetime',
-
             'auto_renew' => 'boolean',
             'is_verified' => 'boolean',
             'is_online' => 'boolean',
-
             'age' => 'integer',
             'coins' => 'integer',
-
             'lat' => 'float',
             'lng' => 'float',
         ];
@@ -222,6 +240,57 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         );
     }
 
+    /**
+     * Public URL of the user's approved cover image, or null.
+     *
+     * Prefers the loaded `approvedCoverImage` relation to avoid a query
+     * when the relation was eager-loaded. Falls back to a single lookup
+     * otherwise.
+     *
+     * Memoized per request.
+     */
+    protected function coverImage(): Attribute
+    {
+        return Attribute::make(
+            get: function (): ?string {
+                if ($this->coverImageResolved) {
+                    return $this->cachedCoverImage;
+                }
+
+                $this->coverImageResolved = true;
+
+                $image = $this->relationLoaded('approvedCoverImage')
+                    ? $this->getRelation('approvedCoverImage')
+                    : $this->approvedCoverImage()->first();
+
+                return $this->cachedCoverImage = $image?->public_url;
+            },
+        );
+    }
+
+    /**
+     * Computed points balance from the ledger.
+     *
+     * Memoized per request instance to avoid running the aggregate
+     * twice on every access.
+     */
+    public function getPointsBalanceAttribute(): int
+    {
+        if ($this->cachedPointsBalance !== null) {
+            return $this->cachedPointsBalance;
+        }
+
+        $credits = (int) $this->pointTransactions()
+            ->where('direction', PointTransaction::DIRECTION_CREDIT)
+            ->sum('points');
+
+        $debits = (int) $this->pointTransactions()
+            ->where('direction', PointTransaction::DIRECTION_DEBIT)
+            ->sum('points');
+
+        return $this->cachedPointsBalance = $credits - $debits;
+    }
+
     // ================================================================
     // LOCATION RELATIONSHIPS
     // ================================================================
@@ -237,12 +306,29 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     }
 
     // ================================================================
-    // PROFILE RELATIONSHIPS
+    // PROFILE & MEDIA RELATIONSHIPS
     // ================================================================
 
     public function profile(): HasOne
     {
         return $this->hasOne(UserProfile::class);
+    }
+
+    public function images(): HasMany
+    {
+        return $this->hasMany(UserImage::class)->ordered();
+    }
+
+    public function videos(): HasMany
+    {
+        return $this->hasMany(UserVideo::class)->ordered();
+    }
+
+    public function approvedCoverImage(): HasOne
+    {
+        return $this->hasOne(UserImage::class)
+            ->where('is_cover', true)
+            ->where('status', UserImage::STATUS_APPROVED);
     }
 
     // ================================================================
@@ -252,6 +338,11 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function likes(): HasMany
     {
         return $this->hasMany(UserLike::class);
+    }
+
+    public function receivedLikes(): HasMany
+    {
+        return $this->hasMany(UserLike::class, 'liked_user_id');
     }
 
     public function reviewsWritten(): HasMany
@@ -304,18 +395,12 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 
     public function conversationsAsOne(): HasMany
     {
-        return $this->hasMany(
-            Conversation::class,
-            'user_one_id'
-        );
+        return $this->hasMany(Conversation::class, 'user_one_id');
     }
 
     public function conversationsAsTwo(): HasMany
     {
-        return $this->hasMany(
-            Conversation::class,
-            'user_two_id'
-        );
+        return $this->hasMany(Conversation::class, 'user_two_id');
     }
 
     public function conversationParticipants(): HasMany
@@ -352,19 +437,6 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->hasMany(PointTransaction::class);
     }
 
-    public function getPointsBalanceAttribute(): int
-    {
-        $credits = $this->pointTransactions()
-            ->where('direction', PointTransaction::DIRECTION_CREDIT)
-            ->sum('points');
-
-        $debits = $this->pointTransactions()
-            ->where('direction', PointTransaction::DIRECTION_DEBIT)
-            ->sum('points');
-
-        return (int) $credits - (int) $debits;
-    }
-
     public function mpesaTransactions(): HasMany
     {
         return $this->hasMany(MpesaTransaction::class);
@@ -376,29 +448,19 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function coinPurchases(): HasMany
     {
         return $this->mpesaTransactions()
-            ->where(
-                'type',
-                MpesaTransaction::TYPE_COINS_PURCHASE
-            );
+            ->where('type', MpesaTransaction::TYPE_COINS_PURCHASE);
     }
 
     public function completedCoinPurchases(): HasMany
     {
         return $this->coinPurchases()
-            ->where(
-                'status',
-                MpesaTransaction::STATUS_COMPLETED
-            );
+            ->where('status', MpesaTransaction::STATUS_COMPLETED);
     }
 
     public function pendingCoinPurchases(): HasMany
     {
         return $this->coinPurchases()
-            ->whereIn('status', [
-                MpesaTransaction::STATUS_PENDING,
-                MpesaTransaction::STATUS_PROCESSING,
-                MpesaTransaction::STATUS_UNKNOWN,
-            ]);
+            ->whereIn('status', self::PENDING_MPESA_STATUSES);
     }
 
     // ================================================================
@@ -408,30 +470,20 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function escortListingPayments(): HasMany
     {
         return $this->mpesaTransactions()
-            ->where(
-                'type',
-                MpesaTransaction::TYPE_ESCORT_LISTING_FEES
-            );
-    }
-
-    public function latestEscortPayment(): HasOne
-    {
-        return $this->hasOne(MpesaTransaction::class)
-            ->where(
-                'type',
-                MpesaTransaction::TYPE_ESCORT_LISTING_FEES
-            )
-            ->latestOfMany();
+            ->where('type', MpesaTransaction::TYPE_ESCORT_LISTING_FEES);
     }
 
     public function pendingEscortPayments(): HasMany
     {
         return $this->escortListingPayments()
-            ->whereIn('status', [
-                MpesaTransaction::STATUS_PENDING,
-                MpesaTransaction::STATUS_PROCESSING,
-                MpesaTransaction::STATUS_UNKNOWN,
-            ]);
+            ->whereIn('status', self::PENDING_MPESA_STATUSES);
+    }
+
+    public function latestEscortPayment(): HasOne
+    {
+        return $this->hasOne(MpesaTransaction::class)
+            ->where('type', MpesaTransaction::TYPE_ESCORT_LISTING_FEES)
+            ->latestOfMany();
     }
 
     // ================================================================
@@ -450,14 +502,12 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 
     public function totalSpentOnCoins(): float
     {
-        return (float) $this->completedCoinPurchases()
-            ->sum('amount');
+        return (float) $this->completedCoinPurchases()->sum('amount');
     }
 
     public function totalCoinsPurchased(): int
     {
-        return (int) $this->completedCoinPurchases()
-            ->sum('coins');
+        return (int) $this->completedCoinPurchases()->sum('coins');
     }
 
     public function totalCoinsSpent(): int
@@ -473,23 +523,25 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 
     public function hasBlocked(User $other): bool
     {
-        return $this->blockedUsers()
-            ->whereKey($other->id)
-            ->exists();
+        return $this->blockedUsers()->whereKey($other->id)->exists();
     }
 
     public function isBlockedBy(User $other): bool
     {
-        return $this->blockedBy()
-            ->whereKey($other->id)
-            ->exists();
+        return $this->blockedBy()->whereKey($other->id)->exists();
     }
 
     public function hasLiked(User $other): bool
     {
-        return $this->likes()
-            ->where('liked_user_id', $other->id)
-            ->exists();
+        return $this->likes()->where('liked_user_id', $other->id)->exists();
+    }
+
+    /**
+     * True if either side has blocked the other.
+     */
+    public function isBlockedWith(User $other): bool
+    {
+        return $this->hasBlocked($other) || $this->isBlockedBy($other);
     }
 
     // ================================================================
@@ -505,13 +557,11 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 
     /**
      * Whether this user has an active escort listing.
+     *
+     * Uses the loaded `profile` relation when available to avoid
+     * a redundant query.
      */
     public function isEscort(): bool
-    {
-        return $this->profile?->hasActiveListing() ?? false;
-    }
-
-    public function hasActiveEscortListing(): bool
     {
         return $this->profile?->hasActiveListing() ?? false;
     }
@@ -520,25 +570,34 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     // QUERY SCOPES
     // ================================================================
 
-    public function scopeActive(Builder $query): Builder
+    public function scopeOnline(Builder $query): Builder
     {
         return $query->where('is_online', true);
     }
 
+    /** @deprecated Use scopeOnline() — kept for backward compatibility. */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->online();
+    }
+
+    public function scopeVerified(Builder $query): Builder
+    {
+        return $query->where('is_verified', true);
+    }
+
     public function scopeEscorts(Builder $query): Builder
     {
-        return $query->whereHas('profile', function (Builder $profile) {
-            $profile->where('listing_tier', 'escort')
-                ->where('is_approved', true)
-                ->where('is_available', true)
-                ->whereNotNull('listing_expires_at')
-                ->where('listing_expires_at', '>', now());
+        return $query->whereHas('profile', function (Builder $profile): void {
+            $profile->escortTier()
+                ->approved()
+                ->available()
+                ->activeListing();
         });
     }
 
     public function scopeActiveEscorts(Builder $query): Builder
     {
-        return $query->escorts()
-            ->where('is_online', true);
+        return $query->escorts()->online();
     }
 }

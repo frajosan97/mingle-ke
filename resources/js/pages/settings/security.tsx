@@ -1,57 +1,23 @@
 // resources/js/pages/settings/security.tsx
 import { Form, Head } from "@inertiajs/react";
 import { useRef } from "react";
-import SecurityController from "@/actions/App/Http/Controllers/Settings/SecurityController";
-import InputError from "@/components/input-error";
-import PasswordInput from "@/components/password-input";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { edit } from "@/routes/security";
+import { KeyRound, Lock, ShieldCheck } from "lucide-react";
+import { Field } from "@/components/ui/fields";
+import { PageHeader } from "@/components/page-header";
 import type { Props as ManagePasskeysProps } from "@/components/manage-passkeys";
 import ManagePasskeys from "@/components/manage-passkeys";
 import type { Props as ManageTwoFactorProps } from "@/components/manage-two-factor";
 import ManageTwoFactor from "@/components/manage-two-factor";
-import { KeyRound, Lock, ShieldCheck } from "lucide-react";
+import SecurityController from "@/actions/App/Http/Controllers/Settings/SecurityController";
+import PasswordInput from "@/components/password-input";
 
 // oxfmt-ignore
 type Props = {
     passwordRules: string;
 } & ManagePasskeysProps &
     ManageTwoFactorProps;
-
-/* ─── Field wrapper ──────────────────────────────────────── */
-function Field({
-    label,
-    htmlFor,
-    icon: Icon,
-    hint,
-    error,
-    children,
-}: {
-    label: string;
-    htmlFor?: string;
-    icon?: React.ComponentType<{ className?: string }>;
-    hint?: string;
-    error?: string;
-    children: React.ReactNode;
-}) {
-    return (
-        <div className="space-y-2">
-            <Label
-                htmlFor={htmlFor}
-                className="flex items-center gap-1.5 text-sm font-medium text-foreground"
-            >
-                {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground" />}
-                {label}
-            </Label>
-            {children}
-            {hint && !error && (
-                <p className="text-xs text-muted-foreground">{hint}</p>
-            )}
-            <InputError message={error} />
-        </div>
-    );
-}
 
 /* ─── Section wrapper ────────────────────────────────────── */
 function Section({
@@ -90,16 +56,11 @@ export default function Security(props: Props) {
 
             <div className="space-y-10 pb-8">
                 {/* ── Header ─────────────────────────────── */}
-                <header>
-                    <h2 className="text-2xl font-bold tracking-tight text-foreground">
-                        Security settings
-                    </h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                        Manage your password, two-factor authentication and
-                        passkeys. Keep your account secure with a long, random
-                        password.
-                    </p>
-                </header>
+                <PageHeader
+                    title="Security settings"
+                    description="Manage your password, two-factor authentication and passkeys. Keep your account secure with a long, random password."
+                    backHref={"/settings"}
+                />
 
                 {/* ── Password ───────────────────────────── */}
                 <Form

@@ -33,8 +33,6 @@ class UserProfile extends Model
         'availability_status',
         'incall',
         'outcall',
-        'cover_image',
-        'gallery',
         'is_approved',
         'approved_at',
         'is_featured',
@@ -51,7 +49,6 @@ class UserProfile extends Model
     {
         return [
             'services' => 'array',
-            'gallery' => 'array',
             'smoking' => 'boolean',
             'drinking' => 'boolean',
             'is_available' => 'boolean',

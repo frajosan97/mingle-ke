@@ -7,7 +7,6 @@ import {
     MessageSquare,
     LogOut,
     ShieldQuestion,
-    ArrowLeft,
     Wallet2,
 } from "lucide-react";
 
@@ -17,6 +16,7 @@ import { edit as editAppearance } from "@/routes/appearance";
 import { edit as editProfile } from "@/routes/profile";
 import { edit as editSecurity } from "@/routes/security";
 import { index as indexWallet } from "@/routes/wallets";
+import { manage as manageEscort } from "@/routes/escorts";
 import type { RouteDefinition } from "@/wayfinder";
 
 type NavHref = RouteDefinition<"get"> | string;
@@ -42,6 +42,13 @@ const SIDEBAR_NAV_ITEMS: SidebarNavItem[] = [
         icon: User,
     },
     {
+        id: "escort",
+        title: "Become an Escort",
+        description: "Escort profile management",
+        href: manageEscort(),
+        icon: ShieldQuestion,
+    },
+    {
         id: "account",
         title: "Account",
         description: "Password, 2FA, passkeys, notifications",
@@ -61,13 +68,6 @@ const SIDEBAR_NAV_ITEMS: SidebarNavItem[] = [
         description: "Coins, Balances, Points, Payouts, History",
         href: indexWallet(),
         icon: Wallet2,
-    },
-    {
-        id: "help-and-feedback",
-        title: "Help & Feedback",
-        description: "Help center, contact support, privacy policy",
-        href: "#",
-        icon: ShieldQuestion,
     },
     {
         id: "logout",
@@ -331,20 +331,6 @@ export default function SettingsLayout({
 
                 {/* Main Content Container */}
                 <div className="relative z-10 flex min-h-full w-full flex-col p-4 sm:p-6 lg:p-8">
-                    {/* back icon */}
-                    {isOnSubPage && (
-                        <div className="mb-4 flex items-center">
-                            <Link
-                                href={"/settings"}
-                                className="flex items-center gap-2"
-                            >
-                                <ArrowLeft className="h-4 w-4" />
-                                <span>Back</span>
-                            </Link>
-                        </div>
-                    )}
-
-                    {/* Main Content */}
                     {children}
                 </div>
             </main>
