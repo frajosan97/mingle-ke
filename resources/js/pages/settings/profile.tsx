@@ -1,30 +1,23 @@
 // resources/js/pages/settings/profile.tsx
 import { Calendar, MapPin, Phone, User as UserIcon } from "lucide-react";
 import { Form, Head, usePage, Link } from "@inertiajs/react";
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { buildSelectStyles } from "@/components/ui/select-styles";
 import { edit, update } from "@/routes/profile";
 import { send } from "@/routes/verification";
 import { PageHeader } from "@/components/page-header";
 import { Field } from "@/components/ui/fields";
+import CustomReactSelect from "@/components/custom-react-select";
 import type { Auth } from "@/types";
-import Select from "react-select";
 import DeleteUser from "@/components/delete-user";
 
 type PageProps = { auth: Auth };
-type GenderOption = { value: string; label: string };
 
-const GENDERS: GenderOption[] = [
+const GENDERS = [
     { value: "female", label: "Female" },
     { value: "male", label: "Male" },
     { value: "other", label: "Other" },
 ];
-
-const genderSelectStyles = buildSelectStyles<GenderOption, false>({
-    menuIsPortal: false,
-});
 
 /* ─── Section wrapper ────────────────────────────────────── */
 function Section({
@@ -62,6 +55,7 @@ export default function Profile({
     isEscort?: boolean;
 }) {
     const { auth } = usePage<PageProps>().props;
+
     const user = auth.user as Auth["user"] & {
         phone?: string | null;
         age?: number | null;
@@ -70,8 +64,6 @@ export default function Profile({
         bio?: string | null;
     };
 
-    const currentGender = GENDERS.find((g) => g.value === user.gender) ?? null;
-
     return (
         <>
             <Head title="Profile settings" />
@@ -79,7 +71,7 @@ export default function Profile({
             <div className="space-y-10 pb-8">
                 <PageHeader
                     title="Profile"
-                    description="Manage your personal information. Your phone number and location are private and only used to match you with people nearby."
+                    description="Manage your personal information, photo and contact details."
                     backHref="/settings"
                 />
 
@@ -144,6 +136,7 @@ export default function Profile({
                                                     email
                                                 </Link>
                                             </p>
+
                                             {status ===
                                                 "verification-link-sent" && (
                                                 <p className="mt-2 text-sm font-medium text-brand-green">
@@ -155,7 +148,7 @@ export default function Profile({
                                     )}
                             </Section>
 
-                            {/* ── Personal fields (no header) ─ */}
+                            {/* ── Personal fields ─────────── */}
                             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                                 <Field
                                     label="Phone number"
@@ -190,23 +183,36 @@ export default function Profile({
                                     />
                                 </Field>
 
+                                {/* ── Gender ───────────────── */}
                                 <Field
                                     label="Gender"
                                     htmlFor="gender"
                                     icon={UserIcon}
                                     error={errors.gender}
                                 >
-                                    <Select<GenderOption, false>
-                                        inputId="gender"
-                                        name="gender"
+                                    <CustomReactSelect
+                                        id="gender"
+                                        value={user.gender ?? ""}
+                                        onChange={(v) => {
+                                            const input =
+                                                document.getElementById(
+                                                    "gender-input",
+                                                ) as HTMLInputElement | null;
+
+                                            if (input) {
+                                                input.value = v;
+                                            }
+                                        }}
                                         options={GENDERS}
-                                        defaultValue={currentGender}
                                         placeholder="Prefer not to say"
                                         isClearable
-                                        isSearchable={false}
-                                        styles={genderSelectStyles}
-                                        menuPosition="fixed"
-                                        menuShouldScrollIntoView={false}
+                                    />
+
+                                    <input
+                                        id="gender-input"
+                                        type="hidden"
+                                        name="gender"
+                                        defaultValue={user.gender ?? ""}
                                     />
                                 </Field>
 
@@ -225,6 +231,7 @@ export default function Profile({
                                 </Field>
                             </div>
 
+                            {/* ── Bio ─────────────────────── */}
                             <Field
                                 label="Bio"
                                 htmlFor="bio"
@@ -242,7 +249,7 @@ export default function Profile({
                                 />
                             </Field>
 
-                            {/* ── Save (no border, no pt) ── */}
+                            {/* ── Save ────────────────────── */}
                             <div className="flex items-center gap-4">
                                 <Button
                                     disabled={processing}
@@ -256,7 +263,7 @@ export default function Profile({
                     )}
                 </Form>
 
-                {/* Danger zone */}
+                {/* ── Danger zone ─────────────────────── */}
                 <div className="mt-8 border-t border-border pt-8">
                     <DeleteUser />
                 </div>

@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
-use App\Services\CoinsService;
+use App\Services\CoinsPurchaseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -13,7 +13,7 @@ use Throwable;
 class MpesaCallbackController extends Controller
 {
     public function __construct(
-        protected CoinsService $coinsService
+        protected CoinsPurchaseService $CoinsPurchaseService
     ) {
     }
 
@@ -45,7 +45,7 @@ class MpesaCallbackController extends Controller
             return response('OK');
         }
 
-        $transaction = $this->coinsService->findByCheckoutRequestId(
+        $transaction = $this->CoinsPurchaseService->findByCheckoutRequestId(
             (string) $checkoutId
         );
 
@@ -80,7 +80,7 @@ class MpesaCallbackController extends Controller
                     return response('OK');
                 }
 
-                $this->coinsService->confirmPayment(
+                $this->CoinsPurchaseService->confirmPayment(
                     $transaction,
                     (string) $receiptNumber
                 );
@@ -90,7 +90,7 @@ class MpesaCallbackController extends Controller
                     'receipt' => $receiptNumber,
                 ]);
             } else {
-                $this->coinsService->failPayment(
+                $this->CoinsPurchaseService->failPayment(
                     $transaction,
                     $resultDesc
                 );
@@ -170,7 +170,7 @@ class MpesaCallbackController extends Controller
         }
 
         try {
-            $transaction = $this->coinsService->confirmDirectPayment(
+            $transaction = $this->CoinsPurchaseService->confirmDirectPayment(
                 $billRef,
                 $transId,
                 (int) $amount,

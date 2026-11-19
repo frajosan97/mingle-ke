@@ -1,25 +1,482 @@
-import { Head, usePage } from "@inertiajs/react";
-import { Coins, CreditCard, Wallet } from "lucide-react";
-import { StatsCards } from "@/components/stats-cards";
-import TransactionList from "@/components/partials/wallet/transaction-list";
-import TransactionPagination from "@/components/partials/wallet/transaction-pagination";
+import { Head, Link, usePage } from "@inertiajs/react";
+import {
+    ArrowDownLeft,
+    ArrowLeft,
+    ArrowRight,
+    ArrowUpRight,
+    Wallet,
+} from "lucide-react";
 
-import { formatCurrency, formatNumber } from "@/lib/wallet/formatters";
-
-import type { SharedProps } from "@/types/coin";
-import type { TransactionsPageData } from "@/types/transactions";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { SectionCard } from "@/components/ui/section-card";
+import { StatusBadge } from "@/components/ui/status-badge";
+
+import { formatDate, formatNumber } from "@/lib/wallet/formatters";
+
+import {
+    getMethodLabel,
+    getTransactionStatus,
+} from "@/lib/wallet/transaction-utils";
+
+/*
+|--------------------------------------------------------------------------
+| Types
+|--------------------------------------------------------------------------
+*/
+
+type Transaction = {
+    id: number;
+    type: string;
+    direction?: string | null;
+    status: string;
+
+    amount: number | string;
+    currency?: string | null;
+    amount_kes?: number | string | null;
+
+    coins?: number | null;
+
+    method?: string | null;
+    payment_method?: string | null;
+    phone?: string | null;
+
+    reference?: string | null;
+    bill_ref?: string | null;
+    mpesa_receipt?: string | null;
+    receipt?: string | null;
+
+    description?: string | null;
+    failure_reason?: string | null;
+
+    meta?: Record<string, unknown> | null;
+
+    created_at: string;
+};
+
+type PaginationLink = {
+    url: string | null;
+    label: string;
+    active: boolean;
+};
+
+type TransactionPaginator = {
+    data: Transaction[];
+    links: PaginationLink[];
+    from: number | null;
+    to: number | null;
+    total: number;
+};
+
+type TransactionsPageProps = {
+    transactions: TransactionPaginator;
+};
+
+/*
+|--------------------------------------------------------------------------
+| Helpers
+|--------------------------------------------------------------------------
+*/
+
+function decodePaginationLabel(label: string): string {
+    return label.replace(/<[^>]*>/g, "").trim();
+}
+
+function getTransactionAmount(transaction: Transaction): number {
+    const amount = transaction.amount ?? transaction.amount_kes ?? 0;
+
+    const parsed = Number(amount);
+
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatTransactionAmount(transaction: Transaction): string {
+    const amount = getTransactionAmount(transaction);
+    const currency = transaction.currency || "KES";
+
+    try {
+        return new Intl.NumberFormat("en-KE", {
+            style: "currency",
+            currency,
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2,
+        }).format(amount);
+    } catch {
+        return `${currency} ${amount.toFixed(2)}`;
+    }
+}
+
+function normalizeValue(value?: string | null): string {
+    return (value ?? "").toLowerCase().replace(/[_\s-]+/g, "");
+}
+
+function getTransactionDirection(transaction: Transaction): "in" | "out" {
+    const direction = normalizeValue(transaction.direction);
+    const type = normalizeValue(transaction.type);
+
+    if (
+        ["outbound", "outgoing", "debit", "withdrawal", "payout"].includes(
+            direction,
+        ) ||
+        ["withdrawal", "payout"].includes(type)
+    ) {
+        return "out";
+    }
+
+    return "in";
+}
+
+function getTransactionTitle(transaction: Transaction): string {
+    if (transaction.description) {
+        return transaction.description;
+    }
+
+    const meta = transaction.meta ?? {};
+
+    const metaLabel = meta.label ?? meta.plan_label ?? meta.description;
+
+    if (typeof metaLabel === "string" && metaLabel.trim()) {
+        return metaLabel;
+    }
+
+    const type = normalizeValue(transaction.type);
+
+    const titles: Record<string, string> = {
+        coinpurchase: "Coin purchase",
+        coinpurchasepayment: "Coin purchase",
+        coinspurchase: "Coin purchase",
+        escortlistingfees: "Escort subscription",
+        escortsubscription: "Escort subscription",
+        escortpayment: "Escort subscription",
+        withdrawal: "Withdrawal",
+        payout: "Payout",
+        deposit: "Wallet deposit",
+        refund: "Refund",
+        phone_reveal: "Phone reveal",
+        phonereveal: "Phone reveal",
+        adjustment: "Wallet adjustment",
+    };
+
+    if (titles[type]) {
+        return titles[type];
+    }
+
+    return transaction.type
+        .replace(/[_-]+/g, " ")
+        .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function getTransactionReference(transaction: Transaction): string | null {
+    return (
+        transaction.mpesa_receipt ||
+        transaction.receipt ||
+        transaction.reference ||
+        transaction.bill_ref ||
+        null
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Status badge
+|--------------------------------------------------------------------------
+*/
+
+function TransactionStatusBadge({ status }: { status: string }) {
+    const config = getTransactionStatus(status);
+
+    return (
+        <StatusBadge
+            config={{
+                label: config.label,
+                icon: config.icon,
+                className: config.className,
+            }}
+        />
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Transaction icon
+|--------------------------------------------------------------------------
+*/
+
+function TransactionIcon({ transaction }: { transaction: Transaction }) {
+    const isIncoming = getTransactionDirection(transaction) === "in";
+
+    return (
+        <div
+            className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${
+                isIncoming
+                    ? "bg-brand-green/10 text-brand-green"
+                    : "bg-primary/10 text-primary"
+            }`}
+        >
+            {isIncoming ? (
+                <ArrowDownLeft className="size-5" />
+            ) : (
+                <ArrowUpRight className="size-5" />
+            )}
+        </div>
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Transaction details
+|--------------------------------------------------------------------------
+*/
+
+function TransactionDetails({ transaction }: { transaction: Transaction }) {
+    const method = transaction.method || transaction.payment_method;
+    const reference = getTransactionReference(transaction);
+
+    return (
+        <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-foreground">
+                    {getTransactionDirection(transaction) === "in" ? "+" : "−"}
+                    {formatTransactionAmount(transaction)}
+                </span>
+
+                {transaction.coins != null && transaction.coins > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                        · {formatNumber(transaction.coins)} coins
+                    </span>
+                )}
+            </div>
+
+            {method && (
+                <p className="text-xs text-muted-foreground">
+                    {getMethodLabel(method)}
+                    {transaction.phone && ` · ${transaction.phone}`}
+                </p>
+            )}
+
+            {reference && (
+                <p className="truncate text-xs text-muted-foreground">
+                    Reference:{" "}
+                    <span className="font-mono text-foreground">
+                        {reference}
+                    </span>
+                </p>
+            )}
+
+            {transaction.failure_reason && (
+                <p className="mt-1 max-w-sm text-xs text-destructive">
+                    {transaction.failure_reason}
+                </p>
+            )}
+        </div>
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Desktop transaction row
+|--------------------------------------------------------------------------
+*/
+
+function TransactionRow({ transaction }: { transaction: Transaction }) {
+    return (
+        <tr className="border-b border-border transition-colors last:border-0 hover:bg-muted/40">
+            <td className="px-4 py-4">
+                <div className="flex min-w-0 items-center gap-3">
+                    <TransactionIcon transaction={transaction} />
+
+                    <div className="min-w-0">
+                        <p className="truncate font-semibold text-foreground">
+                            {getTransactionTitle(transaction)}
+                        </p>
+
+                        <p className="mt-1 whitespace-nowrap text-xs text-muted-foreground">
+                            #{transaction.id} ·{" "}
+                            {formatDate(transaction.created_at)}
+                        </p>
+                    </div>
+                </div>
+            </td>
+
+            <td className="px-4 py-4">
+                <TransactionDetails transaction={transaction} />
+            </td>
+
+            <td className="px-4 py-4">
+                <TransactionStatusBadge status={transaction.status} />
+            </td>
+        </tr>
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Mobile transaction card
+|--------------------------------------------------------------------------
+*/
+
+function TransactionMobileCard({ transaction }: { transaction: Transaction }) {
+    const reference = getTransactionReference(transaction);
+    const method = transaction.method || transaction.payment_method;
+
+    return (
+        <article className="space-y-4 p-5">
+            <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                    <TransactionIcon transaction={transaction} />
+
+                    <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-foreground">
+                            {getTransactionTitle(transaction)}
+                        </p>
+
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            #{transaction.id} ·{" "}
+                            {formatDate(transaction.created_at)}
+                        </p>
+                    </div>
+                </div>
+
+                <TransactionStatusBadge status={transaction.status} />
+            </div>
+
+            <div className="rounded-xl bg-muted/30 p-4">
+                <p className="text-xs text-muted-foreground">
+                    Transaction amount
+                </p>
+
+                <p className="mt-1 text-lg font-bold text-foreground">
+                    {getTransactionDirection(transaction) === "in" ? "+" : "−"}
+                    {formatTransactionAmount(transaction)}
+                </p>
+
+                {transaction.coins != null && transaction.coins > 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                        {formatNumber(transaction.coins)} coins
+                    </p>
+                )}
+            </div>
+
+            <div className="flex flex-wrap justify-between gap-2 text-xs">
+                {method && (
+                    <span className="text-muted-foreground">
+                        Payment:{" "}
+                        <span className="font-medium text-foreground">
+                            {getMethodLabel(method)}
+                        </span>
+                    </span>
+                )}
+
+                {transaction.phone && (
+                    <span className="font-medium text-foreground">
+                        {transaction.phone}
+                    </span>
+                )}
+            </div>
+
+            {reference && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs">
+                    <span className="text-muted-foreground">Reference</span>
+
+                    <span className="break-all font-mono font-medium text-foreground">
+                        {reference}
+                    </span>
+                </div>
+            )}
+
+            {transaction.failure_reason && (
+                <div className="rounded-lg bg-destructive/5 p-3 text-xs leading-relaxed text-destructive">
+                    {transaction.failure_reason}
+                </div>
+            )}
+        </article>
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Pagination
+|--------------------------------------------------------------------------
+*/
+
+function TransactionPagination({
+    links,
+    from,
+    to,
+    total,
+}: {
+    links: PaginationLink[];
+    from: number | null;
+    to: number | null;
+    total: number;
+}) {
+    if (!links.length) return null;
+
+    return (
+        <div className="flex flex-col gap-4 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <p className="text-sm text-muted-foreground">
+                Showing{" "}
+                <span className="font-medium text-foreground">{from ?? 0}</span>{" "}
+                to{" "}
+                <span className="font-medium text-foreground">{to ?? 0}</span>{" "}
+                of{" "}
+                <span className="font-medium text-foreground">
+                    {formatNumber(total)}
+                </span>{" "}
+                transactions
+            </p>
+
+            <nav
+                aria-label="Transaction pages"
+                className="flex flex-wrap items-center gap-1"
+            >
+                {links.map((link, index) => {
+                    const isPrevious = index === 0;
+                    const isNext = index === links.length - 1;
+
+                    return (
+                        <Link
+                            key={`${index}-${link.label}`}
+                            href={link.url ?? "#"}
+                            preserveScroll
+                            aria-disabled={!link.url}
+                            aria-current={link.active ? "page" : undefined}
+                            className={[
+                                "inline-flex size-9 items-center justify-center rounded-lg text-sm font-medium transition-colors",
+                                link.active
+                                    ? "bg-primary text-primary-foreground"
+                                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                                !link.url
+                                    ? "pointer-events-none opacity-40"
+                                    : "",
+                            ].join(" ")}
+                        >
+                            {isPrevious ? (
+                                <ArrowLeft className="size-4" />
+                            ) : isNext ? (
+                                <ArrowRight className="size-4" />
+                            ) : (
+                                decodePaginationLabel(link.label)
+                            )}
+                        </Link>
+                    );
+                })}
+            </nav>
+        </div>
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Transactions page
+|--------------------------------------------------------------------------
+*/
 
 export default function Transactions() {
-    const { transactions, summary } = usePage<
-        SharedProps & TransactionsPageData
-    >().props;
+    const { transactions } = usePage<TransactionsPageProps>().props;
 
     const records = transactions?.data ?? [];
-    const paginationLinks = transactions?.links ?? [];
-
-    const totalTransactions = transactions?.total ?? 0;
+    const total = transactions?.total ?? 0;
 
     return (
         <>
@@ -28,78 +485,75 @@ export default function Transactions() {
             <div className="space-y-8 pb-8">
                 <PageHeader
                     title="Transaction History"
-                    description="Track your coin purchases and wallet activity."
+                    description="View your purchases, subscriptions, withdrawals, and other wallet transactions."
                     backHref="/wallets"
                     backHrefTitle="Back to Wallet"
                 />
 
-                {/* Wallet overview */}
-                <StatsCards
-                    cols={3}
-                    data={[
-                        {
-                            id: "balance",
-                            label: "Current Coin Balance",
-                            value: formatNumber(summary?.coins_balance ?? 0),
-                            icon: Wallet,
-                            hint: "Available coins",
-                            accent: true,
-                        },
-                        {
-                            id: "purchased",
-                            label: "Total Coins Purchased",
-                            value: formatNumber(summary?.total_purchased ?? 0),
-                            icon: Coins,
-                            hint: "Successfully purchased",
-                            tone: "success",
-                        },
-                        {
-                            id: "spent",
-                            label: "Total Spent",
-                            value: formatCurrency(
-                                summary?.total_spent_kes ?? 0,
-                            ),
-                            icon: CreditCard,
-                            hint: "Completed purchases",
-                        },
-                    ]}
-                />
-
-                {/* Transaction history */}
-                <section className="overflow-hidden rounded-xl border border-border bg-card">
-                    <div className="flex flex-col gap-1 border-b border-border px-5 py-5 sm:px-6">
-                        <h3 className="font-semibold text-foreground">
-                            All Transactions
-                        </h3>
-
-                        <p className="text-sm text-muted-foreground">
-                            {formatNumber(totalTransactions)}{" "}
-                            {totalTransactions === 1
-                                ? "transaction"
-                                : "transactions"}{" "}
-                            recorded
-                        </p>
-                    </div>
-
+                <SectionCard
+                    icon={Wallet}
+                    title="All Transactions"
+                    description={`${formatNumber(total)} ${
+                        total === 1 ? "transaction" : "transactions"
+                    } recorded`}
+                >
                     {records.length > 0 ? (
                         <>
-                            <TransactionList transactions={records} />
+                            {/* Desktop */}
+                            <div className="hidden overflow-x-auto md:block">
+                                <table className="w-full text-left">
+                                    <thead>
+                                        <tr className="border-b border-border">
+                                            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                Transaction
+                                            </th>
+
+                                            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                Details
+                                            </th>
+
+                                            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                Status
+                                            </th>
+                                        </tr>
+                                    </thead>
+
+                                    <tbody>
+                                        {records.map((transaction) => (
+                                            <TransactionRow
+                                                key={transaction.id}
+                                                transaction={transaction}
+                                            />
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Mobile */}
+                            <div className="divide-y divide-border md:hidden">
+                                {records.map((transaction) => (
+                                    <TransactionMobileCard
+                                        key={transaction.id}
+                                        transaction={transaction}
+                                    />
+                                ))}
+                            </div>
 
                             <TransactionPagination
-                                links={paginationLinks}
-                                from={transactions?.from ?? null}
-                                to={transactions?.to ?? null}
-                                total={totalTransactions}
+                                links={transactions.links ?? []}
+                                from={transactions.from}
+                                to={transactions.to}
+                                total={total}
                             />
                         </>
                     ) : (
                         <EmptyState
                             icon={Wallet}
                             title="No transactions found"
-                            description="You have not made any transactions yet."
+                            description="Your purchases, subscriptions, withdrawals, and other transactions will appear here."
                         />
                     )}
-                </section>
+                </SectionCard>
             </div>
         </>
     );
@@ -107,7 +561,12 @@ export default function Transactions() {
 
 Transactions.layout = {
     breadcrumbs: [
-        { title: "Wallet", href: "/wallets" },
-        { title: "Transaction History" },
+        {
+            title: "Wallet",
+            href: "/wallets",
+        },
+        {
+            title: "Transaction History",
+        },
     ],
 };

@@ -8,6 +8,7 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Schedule::command('coins:reconcile-pending')
+Schedule::command('mpesa:reconcile-pending')
     ->everyMinute()
-    ->withoutOverlapping();
+    ->withoutOverlapping()
+    ->runInBackground();

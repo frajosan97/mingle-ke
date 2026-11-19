@@ -9,7 +9,6 @@ import {
     History,
     LockKeyhole,
     Phone,
-    Wallet,
     XCircle,
     ReceiptText,
 } from "lucide-react";
@@ -30,62 +29,27 @@ import {
     formatNumber,
     formatDate,
 } from "@/lib/wallet/formatters";
-import type { SharedProps } from "@/types/coin";
+
+import type {
+    Withdrawal,
+    WithdrawalStatus,
+    PaginationLink,
+    WithdrawalsWalletProps,
+} from "@/types/wallet";
+
 import WithdrawalDialog from "@/components/modals/withdrawal-dialog";
 import { StatsCards } from "@/components/stats-cards";
 import { PageHeader } from "@/components/page-header";
-
-type PayoutStatus =
-    | "pending"
-    | "processing"
-    | "completed"
-    | "failed"
-    | "rejected";
-
-interface Payout {
-    id: number;
-    points: number;
-    amount_kes: number;
-    phone: string | null;
-    status: PayoutStatus;
-    reference: string;
-    failure_reason: string | null;
-    created_at: string;
-}
-
-interface PaginationLink {
-    url: string | null;
-    label: string;
-    active: boolean;
-}
-
-interface PayoutPaginator {
-    data: Payout[];
-    current_page: number;
-    last_page: number;
-    total: number;
-    from: number | null;
-    to: number | null;
-    links: PaginationLink[];
-}
-
-interface PayoutsPageProps {
-    pointsBalance: number;
-    conversionRate: number;
-    minimumPoints: number;
-    phone: string | null;
-    phoneConfigured?: boolean;
-    mpesaAvailable?: boolean;
-    paybill?: string | null;
-    phoneSetupUrl?: string;
-    payouts: PayoutPaginator;
-}
+import { NoticeBanner } from "@/components/ui/notice-banner";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SectionCard } from "@/components/ui/section-card";
 
 function titleCase(value: string) {
     return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function getPayoutStatus(status: PayoutStatus) {
+function getWithdrawalStatus(status: WithdrawalStatus) {
     switch (status) {
         case "completed":
             return {
@@ -118,78 +82,69 @@ function getPayoutStatus(status: PayoutStatus) {
     }
 }
 
-function PayoutStatusBadge({ status }: { status: PayoutStatus }) {
-    const config = getPayoutStatus(status);
-    const Icon = config.icon;
-
-    return (
-        <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${config.className}`}
-        >
-            <Icon className="h-3.5 w-3.5" />
-            {config.label}
-        </span>
-    );
+function WithdrawalStatusBadge({ status }: { status: WithdrawalStatus }) {
+    return <StatusBadge config={getWithdrawalStatus(status)} />;
 }
 
-function PayoutTableRow({ payout }: { payout: Payout }) {
+function WithdrawalTableRow({ withdrawal }: { withdrawal: Withdrawal }) {
     return (
         <TableRow>
             <TableCell className="whitespace-nowrap font-medium">
-                {payout.reference}
+                {withdrawal.reference}
             </TableCell>
 
             <TableCell className="whitespace-nowrap tabular-nums">
-                {formatNumber(payout.points)}
+                {formatNumber(withdrawal.points)}
             </TableCell>
 
             <TableCell className="whitespace-nowrap font-semibold tabular-nums">
-                {formatCurrency(payout.amount_kes)}
+                {formatCurrency(withdrawal.amount_kes)}
             </TableCell>
 
             <TableCell className="whitespace-nowrap">
-                {payout.phone || "—"}
+                {withdrawal.phone || "—"}
             </TableCell>
 
             <TableCell className="whitespace-nowrap">
-                <PayoutStatusBadge status={payout.status} />
+                <WithdrawalStatusBadge status={withdrawal.status} />
             </TableCell>
 
             <TableCell className="whitespace-nowrap text-muted-foreground">
-                {formatDate(payout.created_at)}
+                {formatDate(withdrawal.created_at)}
             </TableCell>
         </TableRow>
     );
 }
 
-function PayoutMobileCard({ payout }: { payout: Payout }) {
+function WithdrawalMobileCard({ withdrawal }: { withdrawal: Withdrawal }) {
     return (
         <div className="rounded-xl border bg-card p-4">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">
-                        {payout.reference}
+                        {withdrawal.reference}
                     </p>
+
                     <p className="mt-1 text-xs text-muted-foreground">
-                        {formatDate(payout.created_at)}
+                        {formatDate(withdrawal.created_at)}
                     </p>
                 </div>
 
-                <PayoutStatusBadge status={payout.status} />
+                <WithdrawalStatusBadge status={withdrawal.status} />
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-4">
                 <div>
                     <p className="text-xs text-muted-foreground">Points</p>
                     <p className="mt-1 font-semibold tabular-nums">
-                        {formatNumber(payout.points)}
+                        {formatNumber(withdrawal.points)}
                     </p>
                 </div>
 
                 <div>
-                    <p className="text-xs text-muted-foreground">Payout</p>
+                    <p className="text-xs text-muted-foreground">Withdrawal</p>
                     <p className="mt-1 font-semibold tabular-nums">
-                        {formatCurrency(payout.amount_kes)}
+                        {formatCurrency(withdrawal.amount_kes)}
                     </p>
                 </div>
 
@@ -197,22 +152,23 @@ function PayoutMobileCard({ payout }: { payout: Payout }) {
                     <p className="text-xs text-muted-foreground">
                         M-PESA number
                     </p>
+
                     <p className="mt-1 text-sm font-medium">
-                        {payout.phone || "—"}
+                        {withdrawal.phone || "—"}
                     </p>
                 </div>
             </div>
 
-            {payout.failure_reason && (
+            {withdrawal.failure_reason && (
                 <div className="mt-3 rounded-lg bg-destructive/5 p-3 text-xs text-destructive">
-                    {payout.failure_reason}
+                    {withdrawal.failure_reason}
                 </div>
             )}
         </div>
     );
 }
 
-function PayoutPagination({ links }: { links: PaginationLink[] }) {
+function WithdrawalPagination({ links }: { links: PaginationLink[] }) {
     if (!links.length || links.length <= 3) {
         return null;
     }
@@ -279,7 +235,7 @@ function PayoutPagination({ links }: { links: PaginationLink[] }) {
     );
 }
 
-export default function PayoutsWallet() {
+export default function WithdrawalsWallet() {
     const {
         pointsBalance = 0,
         conversionRate = 1,
@@ -289,13 +245,13 @@ export default function PayoutsWallet() {
         mpesaAvailable,
         paybill,
         phoneSetupUrl,
-        payouts,
-    } = usePage<SharedProps & PayoutsPageProps>().props;
+        withdrawals,
+    } = usePage<WithdrawalsWalletProps>().props;
 
     const [submitting, setSubmitting] = useState(false);
 
-    const records = payouts?.data ?? [];
-    const paginationLinks = payouts?.links ?? [];
+    const records = withdrawals?.data ?? [];
+    const paginationLinks = withdrawals?.links ?? [];
 
     const hasPhone = phoneConfigured ?? Boolean(phone?.trim());
     const canMeetMinimum = pointsBalance >= minimumPoints;
@@ -314,7 +270,7 @@ export default function PayoutsWallet() {
         }
 
         if (mpesaAvailable === false) {
-            toast.error("M-PESA payouts are currently unavailable.");
+            toast.error("M-PESA withdrawals are currently unavailable.");
             return;
         }
 
@@ -328,7 +284,7 @@ export default function PayoutsWallet() {
         }
 
         router.post(
-            "/wallets/payouts/request",
+            "/wallets/withdrawals/request",
             { points: requestedPoints },
             {
                 preserveScroll: true,
@@ -419,25 +375,18 @@ export default function PayoutsWallet() {
 
                 {/* Minimum threshold notice */}
                 {!canMeetMinimum && (
-                    <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-                        <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-
-                        <div>
-                            <p className="font-semibold">
-                                Withdrawal not yet available
-                            </p>
-
-                            <p className="mt-1 text-sm text-muted-foreground">
+                    <NoticeBanner
+                        variant="warning"
+                        icon={LockKeyhole}
+                        title="Withdrawal not yet available"
+                        description={
+                            <>
                                 You need{" "}
                                 <strong>{formatNumber(minimumPoints)}</strong>{" "}
                                 points to make a withdrawal. Your current
                                 balance is{" "}
                                 <strong>{formatNumber(pointsBalance)}</strong>{" "}
-                                points.
-                            </p>
-
-                            <p className="mt-1 text-sm text-muted-foreground">
-                                You need{" "}
+                                points. You need{" "}
                                 <strong>
                                     {formatNumber(
                                         Math.max(
@@ -447,74 +396,42 @@ export default function PayoutsWallet() {
                                     )}
                                 </strong>{" "}
                                 more points to unlock withdrawals.
-                            </p>
-                        </div>
-                    </div>
+                            </>
+                        }
+                    />
                 )}
 
                 {/* Phone configuration notice */}
                 {!hasPhone && (
-                    <div className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-start gap-3">
-                            <Phone className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-
-                            <div>
-                                <p className="font-semibold">
-                                    M-PESA phone number required
-                                </p>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                    Add your phone number to receive withdrawal
-                                    payments.
-                                </p>
-                            </div>
-                        </div>
-
-                        <Link
-                            href={phoneSetupUrl || "/settings/profile"}
-                            className="inline-flex shrink-0 items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition hover:bg-muted"
-                        >
-                            Set up phone number
-                        </Link>
-                    </div>
+                    <NoticeBanner
+                        variant="warning"
+                        icon={Phone}
+                        title="M-PESA phone number required"
+                        description="Add your phone number to receive withdrawal payments."
+                        action={{
+                            label: "Set up phone number",
+                            href: phoneSetupUrl || "/settings/profile",
+                        }}
+                    />
                 )}
 
+                {/* M-PESA unavailable notice */}
                 {mpesaAvailable === false && (
-                    <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-                        <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
-
-                        <div>
-                            <p className="font-semibold">
-                                M-PESA payouts unavailable
-                            </p>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                                Payouts are currently unavailable. Please try
-                                again later.
-                            </p>
-                        </div>
-                    </div>
+                    <NoticeBanner
+                        variant="destructive"
+                        icon={LockKeyhole}
+                        title="M-PESA withdrawals unavailable"
+                        description="Withdrawals are currently unavailable. Please try again later."
+                    />
                 )}
 
                 {/* Withdrawal history */}
-                <section className="overflow-hidden rounded-xl border bg-card">
-                    <div className="flex flex-col gap-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-2">
-                            <History className="h-5 w-5 text-muted-foreground" />
-
-                            <div>
-                                <h2 className="font-semibold">
-                                    Withdrawal history
-                                </h2>
-                                <p className="text-sm text-muted-foreground">
-                                    Track your previous withdrawal requests.
-                                </p>
-                            </div>
-                        </div>
-
-                        <span className="text-sm text-muted-foreground">
-                            {formatNumber(payouts?.total ?? 0)} transactions
-                        </span>
-                    </div>
-
+                <SectionCard
+                    icon={History}
+                    title="Withdrawal history"
+                    description="Track your previous withdrawal requests."
+                    meta={`${formatNumber(withdrawals?.total ?? 0)} transactions`}
+                >
                     {records.length > 0 ? (
                         <>
                             {/* Desktop table */}
@@ -532,10 +449,10 @@ export default function PayoutsWallet() {
                                     </TableHeader>
 
                                     <TableBody>
-                                        {records.map((payout) => (
-                                            <PayoutTableRow
-                                                key={payout.id}
-                                                payout={payout}
+                                        {records.map((withdrawal) => (
+                                            <WithdrawalTableRow
+                                                key={withdrawal.id}
+                                                withdrawal={withdrawal}
                                             />
                                         ))}
                                     </TableBody>
@@ -544,33 +461,24 @@ export default function PayoutsWallet() {
 
                             {/* Mobile cards */}
                             <div className="space-y-3 p-4 md:hidden">
-                                {records.map((payout) => (
-                                    <PayoutMobileCard
-                                        key={payout.id}
-                                        payout={payout}
+                                {records.map((withdrawal) => (
+                                    <WithdrawalMobileCard
+                                        key={withdrawal.id}
+                                        withdrawal={withdrawal}
                                     />
                                 ))}
                             </div>
 
-                            <PayoutPagination links={paginationLinks} />
+                            <WithdrawalPagination links={paginationLinks} />
                         </>
                     ) : (
-                        <div className="flex flex-col items-center justify-center px-4 py-14 text-center">
-                            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                                <ReceiptText className="h-6 w-6 text-muted-foreground" />
-                            </div>
-
-                            <h3 className="mt-4 font-semibold">
-                                No withdrawals yet
-                            </h3>
-
-                            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                                Your withdrawal requests will appear here once
-                                you make your first withdrawal.
-                            </p>
-                        </div>
+                        <EmptyState
+                            icon={ReceiptText}
+                            title="No withdrawals yet"
+                            description="Your withdrawal requests will appear here once you make your first withdrawal."
+                        />
                     )}
-                </section>
+                </SectionCard>
             </div>
         </>
     );

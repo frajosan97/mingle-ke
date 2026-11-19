@@ -1,6 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { User as UserIcon } from "lucide-react";
-import { Field, SelectField, CheckboxField } from "@/components/ui/fields";
+import { Field, CheckboxField } from "@/components/ui/fields";
+import CustomReactSelect from "@/components/custom-react-select";
 import {
     BODY_TYPES,
     ETHNICITIES,
@@ -35,23 +36,33 @@ export default function AppearanceTab({ value, errors, onChange }: Props) {
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                <SelectField
+                <Field
                     label="Orientation"
-                    name="orientation"
-                    icon={UserIcon}
-                    value={value.orientation}
-                    onChange={(v) => onChange("orientation", v)}
-                    options={toOptions(ORIENTATIONS)}
+                    htmlFor="orientation"
                     error={errors.orientation}
-                />
-                <SelectField
+                >
+                    <CustomReactSelect
+                        id="orientation"
+                        value={value.orientation ?? ""}
+                        onChange={(v) => onChange("orientation", v)}
+                        options={toOptions(ORIENTATIONS)}
+                        placeholder="Select orientation"
+                    />
+                </Field>
+
+                <Field
                     label="Body type"
-                    name="body_type"
-                    value={value.body_type}
-                    onChange={(v) => onChange("body_type", v)}
-                    options={toOptions(BODY_TYPES)}
+                    htmlFor="body_type"
                     error={errors.body_type}
-                />
+                >
+                    <CustomReactSelect
+                        id="body_type"
+                        value={value.body_type ?? ""}
+                        onChange={(v) => onChange("body_type", v)}
+                        options={toOptions(BODY_TYPES)}
+                        placeholder="Select body type"
+                    />
+                </Field>
 
                 <Field
                     label="Height (cm)"
@@ -73,6 +84,7 @@ export default function AppearanceTab({ value, errors, onChange }: Props) {
                         placeholder="e.g. 170"
                     />
                 </Field>
+
                 <Field
                     label="Weight (kg)"
                     htmlFor="weight_kg"
@@ -94,30 +106,47 @@ export default function AppearanceTab({ value, errors, onChange }: Props) {
                     />
                 </Field>
 
-                <SelectField
+                <Field
                     label="Hair color"
-                    name="hair_color"
-                    value={value.hair_color}
-                    onChange={(v) => onChange("hair_color", v)}
-                    options={toOptions(HAIR_COLORS)}
+                    htmlFor="hair_color"
                     error={errors.hair_color}
-                />
-                <SelectField
+                >
+                    <CustomReactSelect
+                        id="hair_color"
+                        value={value.hair_color ?? ""}
+                        onChange={(v) => onChange("hair_color", v)}
+                        options={toOptions(HAIR_COLORS)}
+                        placeholder="Select hair color"
+                    />
+                </Field>
+
+                <Field
                     label="Eye color"
-                    name="eye_color"
-                    value={value.eye_color}
-                    onChange={(v) => onChange("eye_color", v)}
-                    options={toOptions(EYE_COLORS)}
+                    htmlFor="eye_color"
                     error={errors.eye_color}
-                />
-                <SelectField
+                >
+                    <CustomReactSelect
+                        id="eye_color"
+                        value={value.eye_color ?? ""}
+                        onChange={(v) => onChange("eye_color", v)}
+                        options={toOptions(EYE_COLORS)}
+                        placeholder="Select eye color"
+                    />
+                </Field>
+
+                <Field
                     label="Ethnicity"
-                    name="ethnicity"
-                    value={value.ethnicity}
-                    onChange={(v) => onChange("ethnicity", v)}
-                    options={toOptions(ETHNICITIES)}
+                    htmlFor="ethnicity"
                     error={errors.ethnicity}
-                />
+                >
+                    <CustomReactSelect
+                        id="ethnicity"
+                        value={value.ethnicity ?? ""}
+                        onChange={(v) => onChange("ethnicity", v)}
+                        options={toOptions(ETHNICITIES)}
+                        placeholder="Select ethnicity"
+                    />
+                </Field>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -127,6 +156,7 @@ export default function AppearanceTab({ value, errors, onChange }: Props) {
                     checked={value.smoking}
                     onChange={(c) => onChange("smoking", c)}
                 />
+
                 <CheckboxField
                     label="Drinking"
                     name="drinking"

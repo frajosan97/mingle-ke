@@ -1,7 +1,7 @@
 import { Head, Link, usePage } from "@inertiajs/react";
 import { ArrowRight, Coins, Gift, ReceiptText, Wallet } from "lucide-react";
-import type { SharedProps } from "@/types/coin";
 import { PageHeader } from "@/components/page-header";
+import type { SharedProps } from "@/types/coin";
 
 export default function Wallets() {
     const { auth } = usePage<SharedProps>().props;

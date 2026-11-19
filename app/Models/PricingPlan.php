@@ -104,31 +104,37 @@ class PricingPlan extends Model
         return (float) $this->unit_price;
     }
 
-    /**
-     * Compute the total for a custom number of days using this plan's
-     * per-day rate. Ignored for preset plans (they have fixed total_price).
-     */
+
     public function priceFor(int $days): float
     {
         $days = max(1, $days);
 
-        if ($this->total_price !== null && $this->days !== null && $this->days === $days) {
-            return (float) $this->total_price;
-        }
+        $subtotal = (float) $this->unit_price * $days;
 
-        return round((float) $this->unit_price * $days, 2);
+        $discountPercent = $days >= 7
+            ? (float) $this->discount_percent
+            : 0;
+
+        return round(
+            $subtotal * (1 - ($discountPercent / 100)),
+            2
+        );
     }
 
-    /** Absolute money saved vs. raw `unit_price * days`. */
-    public function discount(): float
+    public function discountFor(int $days): float
     {
-        if ($this->days === null || $this->total_price === null) {
+        $days = max(1, $days);
+
+        if ($days < 7) {
             return 0.0;
         }
 
-        $full = (float) $this->unit_price * (int) $this->days;
+        $subtotal = (float) $this->unit_price * $days;
 
-        return round(max(0, $full - (float) $this->total_price), 2);
+        return round(
+            $subtotal * ((float) $this->discount_percent / 100),
+            2
+        );
     }
 
     /** True when this plan represents the user-picks-days case. */

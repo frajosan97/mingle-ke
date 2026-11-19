@@ -1,0 +1,1 @@
+import{i as e,n as t,t as n}from"./jsx-runtime-8YCEoqun.js";import{t as r}from"./conversation-empty-CAfgXC2H.js";var i=t(),a=n();function o(){let t=(0,i.c)(1),n;return t[0]===Symbol.for(`react.memo_cache_sentinel`)?(n=(0,a.jsxs)(a.Fragment,{children:[(0,a.jsx)(e,{title:`Settings`}),(0,a.jsx)(r,{})]}),t[0]=n):n=t[0],n}export{o as default};

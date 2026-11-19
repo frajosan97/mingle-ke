@@ -1,6 +1,7 @@
 import { Input } from "@/components/ui/input";
+import CustomReactSelect from "@/components/custom-react-select";
 import { CURRENCIES, toOptions, type EscortProfile } from "@/types/escort";
-import { Field, SelectField } from "@/components/ui/fields";
+import { Field } from "@/components/ui/fields";
 
 type Props = {
     value: Pick<
@@ -24,15 +25,15 @@ const RATE_FIELDS = [
 export default function RatesTab({ value, errors, onChange }: Props) {
     return (
         <div className="space-y-6">
-            <SelectField
-                label="Currency"
-                name="currency"
-                value={value.currency}
-                onChange={(v) => onChange("currency", v ?? "KES")}
-                options={toOptions(CURRENCIES)}
-                error={errors.currency}
-                placeholder="Select currency"
-            />
+            <Field label="Currency" htmlFor="currency" error={errors.currency}>
+                <CustomReactSelect
+                    id="currency"
+                    value={value.currency ?? "KES"}
+                    onChange={(v) => onChange("currency", v || "KES")}
+                    options={toOptions(CURRENCIES)}
+                    placeholder="Select currency"
+                />
+            </Field>
 
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 {RATE_FIELDS.map(({ name, label }) => (

@@ -73,8 +73,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::get('/create', 'create')->name('create');
             Route::post('/', 'store')->name('store');
             Route::put('/{user}', 'update')->whereNumber('user')->name('update');
-            Route::post('/{user}/like', 'like')->whereNumber('user')->name('like');
+
             Route::get('/manage', 'manage')->name('manage');
+            Route::get('/subscription', 'subscription')->name('subscription');
+            Route::post('/subscription/checkout', 'checkoutSubscription')->name('subscription.checkout');
+
+            Route::post('/{user}/like', 'like')->whereNumber('user')->name('like');
         });
 
     /*

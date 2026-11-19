@@ -4,13 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\EscortIndexRequest;
 use App\Http\Requests\Settings\EscortOnboardingRequest;
+use App\Http\Requests\Settings\EscortSubscriptionCheckoutRequest;
 use App\Http\Requests\UpdateLocationRequest;
+use App\Http\Resources\EscortSubscriptionPlanResource;
 use App\Http\Resources\ProfileCardResource;
 use App\Http\Resources\ProfileResource;
+use App\Models\PricingPlan;
 use App\Models\User;
 use App\Models\UserImage;
 use App\Services\Escort\EscortOnboardingService;
 use App\Services\Escort\EscortSearchService;
+use App\Services\EscortPaymentService;
 use App\Services\LocationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -27,6 +31,12 @@ class EscortController extends Controller
     ) {
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Escort Discovery
+    |--------------------------------------------------------------------------
+    */
+
     /**
      * Display discoverable escort profiles.
      */
@@ -34,9 +44,9 @@ class EscortController extends Controller
     {
         $user = $request->user();
         $filters = $request->filters();
-        $coords = $this->locations->resolve($request);
+        $coordinates = $this->locations->resolve($request);
 
-        if ($coords === null) {
+        if (!$coordinates) {
             return Inertia::render('escorts/index', [
                 'profiles' => [
                     'data' => [],
@@ -50,15 +60,17 @@ class EscortController extends Controller
 
         $results = $this->search->getDiscoverResults(
             $filters,
-            $coords['lat'],
-            $coords['lng'],
+            $coordinates['lat'],
+            $coordinates['lng'],
             $user,
             (int) $request->input('page', 1),
         );
 
         return Inertia::render('escorts/index', [
             'profiles' => [
-                'data' => ProfileCardResource::collection($results['data'])->resolve(),
+                'data' => ProfileCardResource::collection(
+                    $results['data']
+                )->resolve(),
                 'links' => $results['links'],
                 'meta' => $results['meta'],
             ],
@@ -67,31 +79,145 @@ class EscortController extends Controller
     }
 
     /**
-     * Show escort onboarding index page.
+     * Display an individual escort profile.
      */
-    public function manage(Request $request): Response
+    public function show(Request $request, User $user): Response
     {
-        $user = $request->user();
-        $profile = $user->profile;
+        $viewer = $request->user();
 
-        return Inertia::render('settings/escorts/index', [
-            'isEscort' => $profile !== null,
-            'isVerified' => (bool) ($profile?->is_approved ?? false),
+        $isOwner = $viewer?->is($user) ?? false;
+
+        $user->loadMissing('profile');
+
+        $isBlocked = $viewer !== null
+            && !$isOwner
+            && (
+                $viewer->hasBlocked($user)
+                || $viewer->isBlockedBy($user)
+            );
+
+        abort_if($isBlocked, 403);
+
+        if (!$isOwner) {
+            abort_unless(
+                $user->canAppearInEscortListings(),
+                404,
+                'This profile is not available.',
+            );
+        }
+
+        $user->loadMissing([
+            'reviewsReceived' => fn($query) => $query
+                ->latest()
+                ->limit(10),
+        ]);
+
+        $suggestedProfiles = User::query()
+            ->escorts()
+            ->with('profile')
+            ->whereKeyNot($user->getKey())
+            ->inRandomOrder()
+            ->limit(10)
+            ->get()
+            ->filter(
+                fn(User $suggested) => $suggested->canAppearInEscortListings()
+            )
+            ->values();
+
+        return Inertia::render('escorts/show', [
+            'profile' => (new ProfileResource($user))->resolve(),
+            'isOwner' => $isOwner,
+            'canMessage' => $viewer !== null && !$isOwner,
+            'isLiked' => $viewer !== null
+                && !$isOwner
+                && $viewer->hasLiked($user),
+            'subscription' => $this->subscriptionData($user),
+            'canAppearInListings' => $user->canAppearInEscortListings(),
+            'suggestedProfiles' => ProfileCardResource::collection(
+                $suggestedProfiles
+            )->resolve(),
         ]);
     }
 
     /**
-     * Show escort onboarding form.
+     * Like an escort profile.
+     */
+    public function like(Request $request, User $user): JsonResponse
+    {
+        $viewer = $request->user();
+
+        abort_if($viewer === null, 401);
+        abort_if($viewer->is($user), 422, 'You cannot like yourself.');
+
+        $user->loadMissing('profile');
+
+        abort_unless(
+            $user->canAppearInEscortListings(),
+            404,
+            'This profile is not available.',
+        );
+
+        abort_if(
+            $viewer->hasBlocked($user) || $viewer->isBlockedBy($user),
+            403,
+        );
+
+        $like = $viewer->likes()->firstOrCreate([
+            'liked_user_id' => $user->id,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'liked' => true,
+            'message' => $like->wasRecentlyCreated
+                ? 'Profile liked.'
+                : 'Profile already liked.',
+            'data' => [
+                'user_id' => $user->id,
+                'liked_at' => $like->created_at?->toIso8601String(),
+            ],
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Escort Management
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Display the escort management page.
+     */
+    public function manage(Request $request): Response
+    {
+        $user = $request->user();
+
+        $user->loadMissing('profile');
+
+        return Inertia::render('settings/escorts/index', [
+            'isEscort' => $user->profile !== null,
+            'isVerified' => (bool) ($user->profile?->is_approved ?? false),
+            'subscription' => $this->subscriptionData($user),
+            'canAppearInListings' => $user->canAppearInEscortListings(),
+        ]);
+    }
+
+    /**
+     * Display the escort onboarding form.
      */
     public function create(Request $request): Response
     {
         $user = $request->user();
-        $profile = $user->profile;
+
+        $user->loadMissing('profile');
 
         return Inertia::render('settings/escorts/create', [
-            'profile' => $profile
+            'profile' => $user->profile
                 ? $this->profilePayload($user)
                 : null,
+
+            'subscription' => $this->subscriptionData($user),
+            'canAppearInListings' => $user->canAppearInEscortListings(),
         ]);
     }
 
@@ -123,60 +249,6 @@ class EscortController extends Controller
     }
 
     /**
-     * Display an escort profile.
-     */
-    public function show(Request $request, User $user): Response
-    {
-        $me = $request->user();
-
-        $isOwner = $me?->is($user) ?? false;
-
-        $isBlocked = $me !== null
-            && !$isOwner
-            && (
-                $me->hasBlocked($user)
-                || $me->isBlockedBy($user)
-            );
-
-        if (!$isOwner) {
-            abort_unless(
-                $user->profile()->approved()->exists(),
-                404,
-                'This profile is not available.',
-            );
-        }
-
-        abort_if($isBlocked, 403);
-
-        $user->loadMissing([
-            'profile',
-            'reviewsReceived' => fn($query) => $query
-                ->latest()
-                ->limit(10),
-        ]);
-
-        $suggestedProfiles = User::query()
-            ->with('profile')
-            ->whereKeyNot($user->getKey())
-            ->whereHas('profile', fn($query) => $query->approved())
-            ->inRandomOrder()
-            ->limit(10)
-            ->get();
-
-        return Inertia::render('escorts/show', [
-            'profile' => (new ProfileResource($user))->resolve(),
-            'isOwner' => $isOwner,
-            'canMessage' => $me !== null && !$isOwner && !$isBlocked,
-            'isLiked' => $me !== null
-                && !$isOwner
-                && $me->hasLiked($user),
-            'suggestedProfiles' => ProfileCardResource::collection(
-                $suggestedProfiles
-            )->resolve(),
-        ]);
-    }
-
-    /**
      * Update escort onboarding information.
      */
     public function update(EscortOnboardingRequest $request): RedirectResponse
@@ -184,49 +256,79 @@ class EscortController extends Controller
         return $this->store($request);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Escort Subscription
+    |--------------------------------------------------------------------------
+    */
+
     /**
-     * Like an escort profile.
+     * Display available escort listing subscription plans.
      */
-    public function like(Request $request, User $user): JsonResponse
+    public function subscription(Request $request): Response|RedirectResponse
     {
-        $me = $request->user();
+        $user = $request->user();
 
-        abort_if($me === null, 401);
-        abort_if($user->is($me), 422, 'You cannot like yourself.');
+        if (!$user->isEscort()) {
+            return redirect()->route('escorts.manage');
+        }
 
-        abort_unless(
-            $user->profile()->approved()->exists(),
-            404,
-            'This profile is not available.',
-        );
+        $plans = PricingPlan::query()
+            ->ofType(PricingPlan::TYPE_ESCORT_LISTING)
+            ->active()
+            ->ordered()
+            ->get();
 
-        abort_if(
-            $me->hasBlocked($user) || $me->isBlockedBy($user),
-            403,
-        );
+        return Inertia::render('wallets/subscription', [
+            'plans' => EscortSubscriptionPlanResource::collection(
+                $plans
+            )->resolve(),
 
-        $like = $me->likes()->firstOrCreate([
-            'liked_user_id' => $user->id,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'liked' => true,
-            'message' => $like->wasRecentlyCreated
-                ? 'Profile liked.'
-                : 'Profile already liked.',
-            'data' => [
-                'user_id' => $user->id,
-                'liked_at' => $like->created_at?->toIso8601String(),
-            ],
+            'phone' => $user->phone ?? '',
+            'subscription' => $this->subscriptionData($user),
         ]);
     }
 
     /**
-     * Update user's location.
+     * Start an escort subscription payment.
      */
-    public function updateLocation(UpdateLocationRequest $request): RedirectResponse
-    {
+    public function checkoutSubscription(
+        EscortSubscriptionCheckoutRequest $request,
+        EscortPaymentService $payments,
+    ): RedirectResponse {
+        $data = $request->validated();
+
+        $result = $payments->startPurchase(
+            $request->user(),
+            (int) $data['plan_id'],
+            (int) $data['days'],
+            $data['phone'],
+        );
+
+        Inertia::flash('toast', [
+            'type' => ($result['success'] ?? false) ? 'success' : 'error',
+            'message' => $result['message'] ?? (
+                ($result['success'] ?? false)
+                ? 'M-PESA payment request sent.'
+                : 'Unable to start your payment.'
+            ),
+        ]);
+
+        return back();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Location
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Update the user's location.
+     */
+    public function updateLocation(
+        UpdateLocationRequest $request
+    ): RedirectResponse {
         $this->locations->update(
             $request->user(),
             $request->validated(),
@@ -235,8 +337,30 @@ class EscortController extends Controller
         return back();
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Private Helpers
+    |--------------------------------------------------------------------------
+    */
+
     /**
-     * Prepare escort profile data for onboarding.
+     * Return the user's escort subscription information.
+     */
+    private function subscriptionData(User $user): array
+    {
+        return [
+            'isActive' => $user->hasActiveEscortSubscription(),
+            'isExpired' => $user->hasExpiredEscortSubscription(),
+            'needsRenewal' => $user->needsEscortSubscriptionRenewal(),
+            'startedAt' => $user->subscription_started_at?->toIso8601String(),
+            'expiresAt' => $user->subscription_expires_at?->toIso8601String(),
+            'plan' => $user->subscription_plan,
+            'autoRenew' => (bool) $user->auto_renew,
+        ];
+    }
+
+    /**
+     * Prepare escort profile data for the onboarding form.
      */
     private function profilePayload(User $user): array
     {

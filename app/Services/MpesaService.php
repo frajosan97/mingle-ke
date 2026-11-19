@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 class MpesaService
@@ -53,13 +55,11 @@ class MpesaService
             ''
         );
 
-        // STK callback
         $this->callbackUrl = (string) config(
             'services.mpesa.callback_url',
             ''
         );
 
-        // B2C callbacks
         $this->resultUrl = (string) config(
             'services.mpesa.result_url',
             ''
@@ -70,7 +70,6 @@ class MpesaService
             ''
         );
 
-        // C2B callbacks
         $this->c2bValidationUrl = (string) config(
             'services.mpesa.validation_url',
             ''
@@ -131,6 +130,32 @@ class MpesaService
             && $this->consumerSecret !== ''
             && $this->c2bValidationUrl !== ''
             && $this->c2bConfirmationUrl !== '';
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Shared Payment Helpers
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Generate a unique payment reference.
+     */
+    public function generateReference(string $prefix, User $user): string
+    {
+        return strtoupper($prefix)
+            . '-'
+            . $user->id
+            . '-'
+            . Str::upper(Str::random(10));
+    }
+
+    /**
+     * Validate a Kenyan M-PESA phone number.
+     */
+    public function validPhone(string $phone): bool
+    {
+        return $this->formatPhone($phone) !== null;
     }
 
     /*
@@ -203,8 +228,8 @@ class MpesaService
     /**
      * Get and cache an OAuth access token.
      *
-     * Daraja tokens normally last 3600 seconds. Cache slightly
-     * below that duration to avoid using an expired token.
+     * Daraja tokens normally last 3600 seconds.
+     * Cache slightly below that duration.
      */
     protected function generateToken(): ?string
     {
@@ -260,7 +285,11 @@ class MpesaService
                 return null;
             }
 
-            Cache::put($cacheKey, $token, now()->addSeconds(3500));
+            Cache::put(
+                $cacheKey,
+                $token,
+                now()->addSeconds(3500)
+            );
 
             return $token;
         } catch (Throwable $e) {
@@ -281,11 +310,7 @@ class MpesaService
     /**
      * Initiate an STK Push request.
      *
-     * A token failure occurs before the STK request is submitted,
-     * so it is a definite initiation failure.
-     *
-     * A timeout or server error after submitting the STK request
-     * may have an uncertain outcome.
+     * Never retries a payment request.
      */
     public function stkPush(
         string $phone,
@@ -428,6 +453,9 @@ class MpesaService
                 'checkout_request_id' => $checkoutRequestId,
                 'merchant_request_id' => $body['MerchantRequestID'] ?? null,
                 'customer_message' => $body['CustomerMessage'] ?? null,
+                'message' => $body['CustomerMessage']
+                    ?? $body['ResponseDescription']
+                    ?? 'STK Push request accepted.',
                 'raw' => $body,
             ];
         } catch (Throwable $e) {
@@ -443,6 +471,55 @@ class MpesaService
         }
     }
 
+    /**
+     * Initiate STK Push and return a normalized response.
+     *
+     * This is the method payment services should call.
+     * It does not retry the request.
+     */
+    public function initiateStk(
+        string $phone,
+        int $amountKes,
+        string $reference,
+        string $description
+    ): array {
+        $raw = $this->stkPush(
+            $phone,
+            $amountKes,
+            $reference,
+            $description
+        );
+
+        $checkoutRequestId = $raw['checkout_request_id']
+            ?? $raw['CheckoutRequestID']
+            ?? null;
+
+        $merchantRequestId = $raw['merchant_request_id']
+            ?? $raw['MerchantRequestID']
+            ?? null;
+
+        $success = (bool) ($raw['success'] ?? false);
+        $uncertain = (bool) ($raw['uncertain'] ?? false);
+
+        if ($success && blank($checkoutRequestId)) {
+            $success = false;
+            $uncertain = true;
+        }
+
+        return [
+            'success' => $success,
+            'uncertain' => $uncertain,
+            'checkout_request_id' => $checkoutRequestId,
+            'merchant_request_id' => $merchantRequestId,
+            'message' => $raw['message']
+                ?? $raw['customer_message']
+                ?? $raw['CustomerMessage']
+                ?? $raw['ResponseDescription']
+                ?? 'M-PESA did not provide a response message.',
+            'raw' => $raw,
+        ];
+    }
+
     /*
     |--------------------------------------------------------------------------
     | STK Query
@@ -452,10 +529,9 @@ class MpesaService
     /**
      * Query the status of an STK request.
      *
-     * ResponseCode = query request result.
-     * ResultCode = actual customer payment result.
+     * ResponseCode represents the query request result.
+     * ResultCode represents the actual customer payment result.
      */
-
     public function stkQuery(string $checkoutRequestId): array
     {
         if (
@@ -554,7 +630,6 @@ class MpesaService
                 'receipt' => $body['MpesaReceiptNumber'] ?? null,
                 'raw' => $body,
             ];
-
         } catch (Throwable $e) {
             Log::error('M-PESA STK Query exception.', [
                 'checkout_request_id' => $checkoutRequestId,
@@ -569,6 +644,40 @@ class MpesaService
         }
     }
 
+    /**
+     * Query an existing STK request and return a normalized response.
+     */
+    public function queryStk(string $checkoutRequestId): array
+    {
+        $raw = $this->stkQuery($checkoutRequestId);
+
+        $resultCode = $raw['result_code']
+            ?? $raw['ResultCode']
+            ?? null;
+
+        $resultDescription = $raw['result_desc']
+            ?? $raw['ResultDesc']
+            ?? $raw['ResponseDescription']
+            ?? $raw['message']
+            ?? null;
+
+        $receipt = $raw['receipt']
+            ?? $raw['MpesaReceiptNumber']
+            ?? $raw['mpesaReceiptNumber']
+            ?? null;
+
+        return [
+            'success' => (bool) ($raw['success'] ?? false),
+            'result_code' => $resultCode,
+            'result_desc' => $resultDescription,
+            'receipt' => $receipt,
+            'message' => $raw['message']
+                ?? $resultDescription
+                ?? 'Payment status is not yet confirmed.',
+            'raw' => $raw,
+        ];
+    }
+
     /*
     |--------------------------------------------------------------------------
     | B2C Payment
@@ -580,6 +689,7 @@ class MpesaService
      *
      * A successful response means the request was accepted,
      * not that the recipient has received the money.
+     *
      * Wait for the B2C result callback before completing
      * the withdrawal transaction.
      */
@@ -720,10 +830,6 @@ class MpesaService
 
     /**
      * Register C2B validation and confirmation URLs.
-     *
-     * These must be separate endpoints:
-     * - Validation URL: validates an incoming payment.
-     * - Confirmation URL: receives a completed payment.
      */
     public function registerC2bUrls(): array
     {
@@ -806,10 +912,12 @@ class MpesaService
      * 01XXXXXXXX
      * 2547XXXXXXXX
      * 2541XXXXXXXX
+     * +2547XXXXXXXX
+     * +2541XXXXXXXX
      */
     protected function formatPhone(string $phone): ?string
     {
-        $phone = preg_replace('/\D+/', '', $phone);
+        $phone = preg_replace('/\D+/', '', trim($phone));
 
         if (!$phone) {
             return null;

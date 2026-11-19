@@ -1,18 +1,57 @@
+
 import { router } from "@inertiajs/react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import type { CoinTransaction } from "@/types/transactions";
-import { formatCurrency, formatNumber } from "@/lib/wallet/formatters";
+import type { CoinTransaction } from "@/types/wallet";
 
 type BusyAction = "retry" | "cancel" | "refresh" | null;
 
 export function useTransactionActions(transaction: CoinTransaction) {
     const [busy, setBusy] = useState<BusyAction>(null);
+
     const status = transaction.status.toLowerCase();
 
+    const handleRequest = (
+        action: Exclude<BusyAction, "refresh" | null>,
+        url: string,
+        successMessage: string,
+        errorMessage: string,
+    ) => {
+        if (busy !== null) return;
+
+        setBusy(action);
+
+        router.post(
+            url,
+            {},
+            {
+                preserveScroll: true,
+
+                onSuccess: () => {
+                    toast.success(successMessage);
+                },
+
+                onError: (errors) => {
+                    const firstError = Object.values(errors)[0];
+
+                    toast.error(
+                        typeof firstError === "string"
+                            ? firstError
+                            : errorMessage,
+                    );
+                },
+
+                onFinish: () => {
+                    setBusy(null);
+                },
+            },
+        );
+    };
+
     const refresh = () => {
-        if (busy) return;
+        if (busy !== null) return;
+
         setBusy("refresh");
 
         router.reload({
@@ -22,55 +61,38 @@ export function useTransactionActions(transaction: CoinTransaction) {
         });
     };
 
+    // Retry immediately. Confirmation is handled by the Dialog in the page.
     const retry = () => {
-        if (busy) return;
-
-        const confirmed = window.confirm(
-            `Retry the purchase of ${formatNumber(transaction.coins)} coins for ${formatCurrency(transaction.amount_kes)}?`,
-        );
-        if (!confirmed) return;
-
-        setBusy("retry");
-        router.post(
+        handleRequest(
+            "retry",
             `/wallets/transactions/${transaction.id}/retry`,
-            {},
-            {
-                preserveScroll: true,
-                onSuccess: () => toast.success("Retry request submitted."),
-                onError: (errors) =>
-                    toast.error(
-                        Object.values(errors)[0] ??
-                            "Unable to retry this transaction.",
-                    ),
-                onFinish: () => setBusy(null),
-            },
+            "Retry request submitted.",
+            "Unable to retry this transaction.",
         );
     };
 
     const cancel = () => {
-        if (busy) return;
+        if (busy !== null) return;
 
         const confirmed = window.confirm(
             "Are you sure you want to cancel this pending transaction? Only cancel if payment has not already been made.",
         );
+
         if (!confirmed) return;
 
-        setBusy("cancel");
-        router.post(
+        handleRequest(
+            "cancel",
             `/wallets/transactions/${transaction.id}/cancel`,
-            {},
-            {
-                preserveScroll: true,
-                onSuccess: () => toast.success("Cancellation request submitted."),
-                onError: (errors) =>
-                    toast.error(
-                        Object.values(errors)[0] ??
-                            "Unable to cancel this transaction.",
-                    ),
-                onFinish: () => setBusy(null),
-            },
+            "Cancellation request submitted.",
+            "Unable to cancel this transaction.",
         );
     };
 
-    return { busy, status, refresh, retry, cancel };
+    return {
+        busy,
+        status,
+        refresh,
+        retry,
+        cancel,
+    };
 }

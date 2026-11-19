@@ -1,1 +1,0 @@
-import{r as e,t}from"./jsx-runtime-_V2uaPZ1.js";import{t as n}from"./compiler-runtime-B30qC8Ol.js";import{t as r}from"./conversation-empty-Dylb6mMk.js";var i=n(),a=t();function o(){let t=(0,i.c)(1),n;return t[0]===Symbol.for(`react.memo_cache_sentinel`)?(n=(0,a.jsxs)(a.Fragment,{children:[(0,a.jsx)(e,{title:`Settings`}),(0,a.jsx)(r,{})]}),t[0]=n):n=t[0],n}export{o as default};

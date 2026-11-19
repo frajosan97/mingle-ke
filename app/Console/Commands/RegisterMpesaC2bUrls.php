@@ -13,15 +13,7 @@ class RegisterMpesaC2bUrls extends Command
 {
     public function handle(MpesaService $mpesa): int
     {
-        $validationUrl = route('mpesa.c2b.validation');
-        $confirmationUrl = route('mpesa.c2b.confirmation');
-
-        $this->info('Registering C2B URLs with Safaricom:');
-        $this->line("  Validation   → {$validationUrl}");
-        $this->line("  Confirmation → {$confirmationUrl}");
-        $this->newLine();
-
-        $result = $mpesa->registerC2bUrls($validationUrl, $confirmationUrl);
+        $result = $mpesa->registerC2bUrls();
 
         if (!($result['success'] ?? false)) {
             $this->error($result['message'] ?? 'Registration failed.');

@@ -132,6 +132,36 @@ return new class extends Migration {
 
         /*
         |--------------------------------------------------------------------------
+        | Coin Packages
+        |--------------------------------------------------------------------------
+        */
+
+
+        Schema::create('coin_packages', function (Blueprint $table) {
+            $table->id();
+
+            $table->string('name');
+
+            $table->unsignedInteger('coins');
+            $table->unsignedInteger('bonus')->default(0);
+
+            $table->decimal('price', 12, 2);
+
+            $table->boolean('is_popular')->default(false);
+            $table->boolean('is_active')->default(true);
+
+            $table->unsignedSmallInteger('sort_order')->default(0);
+
+            $table->timestamps();
+
+            $table->index(
+                ['is_active', 'sort_order'],
+                'coin_packages_active_sort_idx'
+            );
+        });
+
+        /*
+        |--------------------------------------------------------------------------
         | User Profiles
         |--------------------------------------------------------------------------
         */
@@ -723,6 +753,7 @@ return new class extends Migration {
         Schema::dropIfExists('user_videos');
         Schema::dropIfExists('user_images');
         Schema::dropIfExists('user_profiles');
+        Schema::dropIfExists('coin_packages');
         Schema::dropIfExists('pricing_plans');
         Schema::dropIfExists('users');
     }

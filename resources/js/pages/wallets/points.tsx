@@ -20,52 +20,18 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-
 import { formatNumber, formatDate } from "@/lib/wallet/formatters";
-
-import type { SharedProps } from "@/types/coin";
 import { StatsCards } from "@/components/stats-cards";
 import { PageHeader } from "@/components/page-header";
-
-type PointDirection = "credit" | "debit";
-
-interface PointTransaction {
-    id: number;
-    type: string;
-    direction: PointDirection;
-    points: number;
-    reference: string | null;
-    description: string | null;
-    meta?: Record<string, unknown> | null;
-    created_at: string;
-}
-
-interface PaginationLink {
-    url: string | null;
-    label: string;
-    active: boolean;
-}
-
-interface PointTransactionPaginator {
-    data: PointTransaction[];
-    current_page: number;
-    last_page: number;
-    total: number;
-    from: number | null;
-    to: number | null;
-    links: PaginationLink[];
-}
-
-interface PointsSummary {
-    points_balance: number;
-    total_earned: number;
-    total_spent: number;
-}
-
-interface PointsPageProps {
-    transactions: PointTransactionPaginator;
-    summary: PointsSummary;
-}
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SectionCard } from "@/components/ui/section-card";
+import type {
+    PaginationLink,
+    PointDirection,
+    PointTransaction,
+    PointsWalletProps,
+} from "@/types/wallet";
 
 function titleCase(value: string) {
     return value
@@ -135,17 +101,7 @@ function getDirectionConfig(direction: PointDirection) {
 }
 
 function PointDirectionBadge({ direction }: { direction: PointDirection }) {
-    const config = getDirectionConfig(direction);
-    const Icon = config.icon;
-
-    return (
-        <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${config.className}`}
-        >
-            <Icon className="h-3.5 w-3.5" />
-            {config.label}
-        </span>
-    );
+    return <StatusBadge config={getDirectionConfig(direction)} />;
 }
 
 function PointTransactionTableRow({
@@ -327,8 +283,7 @@ function PointsPagination({ links }: { links: PaginationLink[] }) {
 }
 
 export default function PointsWallet() {
-    const { summary, transactions } = usePage<SharedProps & PointsPageProps>()
-        .props;
+    const { summary, transactions } = usePage<PointsWalletProps>().props;
 
     const pointsBalance = summary?.points_balance ?? 0;
     const totalEarned = summary?.total_earned ?? 0;
@@ -381,29 +336,12 @@ export default function PointsWallet() {
                 />
 
                 {/* Points history */}
-                <section className="overflow-hidden rounded-xl border bg-card">
-                    <div className="flex flex-col gap-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-2">
-                            <History className="h-5 w-5 text-muted-foreground" />
-
-                            <div>
-                                <h2 className="font-semibold">
-                                    Points transactions
-                                </h2>
-
-                                <p className="text-sm text-muted-foreground">
-                                    A record of all points credited and deducted
-                                    from your account.
-                                </p>
-                            </div>
-                        </div>
-
-                        <span className="text-sm text-muted-foreground">
-                            {formatNumber(transactions?.total ?? 0)}{" "}
-                            transactions
-                        </span>
-                    </div>
-
+                <SectionCard
+                    icon={History}
+                    title="Points transactions"
+                    description="A record of all points credited and deducted from your account."
+                    meta={`${formatNumber(transactions?.total ?? 0)} transactions`}
+                >
                     {records.length > 0 ? (
                         <>
                             {/* Desktop table */}
@@ -447,30 +385,13 @@ export default function PointsWallet() {
                             <PointsPagination links={paginationLinks} />
                         </>
                     ) : (
-                        <div className="flex flex-col items-center justify-center px-4 py-14 text-center">
-                            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                                <ReceiptText className="h-6 w-6 text-muted-foreground" />
-                            </div>
-
-                            <h3 className="mt-4 font-semibold">
-                                No points transactions yet
-                            </h3>
-
-                            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                                Your points earnings and deductions will appear
-                                here once you start earning or using points.
-                            </p>
-
-                            <Link
-                                href="/wallets"
-                                className="mt-5 inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition hover:bg-muted"
-                            >
-                                <Wallet className="h-4 w-4" />
-                                Back to wallet
-                            </Link>
-                        </div>
+                        <EmptyState
+                            icon={ReceiptText}
+                            title="No points transactions yet"
+                            description="Your points earnings and deductions will appear here once you start earning or using points."
+                        />
                     )}
-                </section>
+                </SectionCard>
             </div>
         </>
     );

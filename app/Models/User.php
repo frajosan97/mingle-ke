@@ -62,34 +62,6 @@ use Rappasoft\LaravelAuthenticationLog\Traits\AuthenticationLoggable;
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
  * @property-read int $points_balance
- *
- * @property-read UserProfile|null $profile
- * @property-read \Illuminate\Database\Eloquent\Collection<int, UserImage> $images
- * @property-read \Illuminate\Database\Eloquent\Collection<int, UserVideo> $videos
- * @property-read UserImage|null $approvedCoverImage
- * @property-read \Illuminate\Database\Eloquent\Collection<int, UserLike> $likes
- * @property-read \Illuminate\Database\Eloquent\Collection<int, UserLike> $receivedLikes
- * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReview> $reviewsWritten
- * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReview> $reviewsReceived
- * @property-read \Illuminate\Database\Eloquent\Collection<int, User> $blockedUsers
- * @property-read \Illuminate\Database\Eloquent\Collection<int, User> $blockedBy
- * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReport> $reportsFiled
- * @property-read \Illuminate\Database\Eloquent\Collection<int, UserReport> $reportsReceived
- * @property-read \Illuminate\Database\Eloquent\Collection<int, Conversation> $conversationsAsOne
- * @property-read \Illuminate\Database\Eloquent\Collection<int, Conversation> $conversationsAsTwo
- * @property-read \Illuminate\Database\Eloquent\Collection<int, ConversationParticipant> $conversationParticipants
- * @property-read \Illuminate\Database\Eloquent\Collection<int, Message> $messages
- * @property-read \Illuminate\Database\Eloquent\Collection<int, MessageAttachment> $messageAttachments
- * @property-read \Illuminate\Database\Eloquent\Collection<int, MessageRead> $messageReads
- * @property-read \Illuminate\Database\Eloquent\Collection<int, CoinTransaction> $coinTransactions
- * @property-read \Illuminate\Database\Eloquent\Collection<int, PointTransaction> $pointTransactions
- * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $mpesaTransactions
- * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $coinPurchases
- * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $completedCoinPurchases
- * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $pendingCoinPurchases
- * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $escortListingPayments
- * @property-read \Illuminate\Database\Eloquent\Collection<int, MpesaTransaction> $pendingEscortPayments
- * @property-read MpesaTransaction|null $latestEscortPayment
  */
 #[Fillable([
     'name',
@@ -135,11 +107,10 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     use HasPushSubscriptions;
     use AuthenticationLoggable;
 
-    /** Coins granted once on account creation. */
     public const WELCOME_COINS = 5;
 
     /**
-     * Statuses that represent a still-in-flight M-Pesa transaction.
+     * Statuses representing an in-flight M-Pesa transaction.
      */
     public const PENDING_MPESA_STATUSES = [
         MpesaTransaction::STATUS_PENDING,
@@ -152,13 +123,10 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         'cover_image',
     ];
 
-    /** Cached points balance to avoid re-querying on every access. */
     protected ?int $cachedPointsBalance = null;
 
-    /** Cached cover image URL to avoid re-querying on every access. */
     protected ?string $cachedCoverImage = null;
 
-    /** Whether cover_image has been resolved yet (distinguishes "not loaded" from "null"). */
     protected bool $coverImageResolved = false;
 
     // ================================================================
@@ -221,7 +189,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     }
 
     /**
-     * Public URL for stored avatar path, or null.
+     * Public URL for stored avatar path.
      */
     protected function avatarUrl(): Attribute
     {
@@ -241,13 +209,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     }
 
     /**
-     * Public URL of the user's approved cover image, or null.
-     *
-     * Prefers the loaded `approvedCoverImage` relation to avoid a query
-     * when the relation was eager-loaded. Falls back to a single lookup
-     * otherwise.
-     *
-     * Memoized per request.
+     * Public URL of the approved cover image.
      */
     protected function coverImage(): Attribute
     {
@@ -269,10 +231,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     }
 
     /**
-     * Computed points balance from the ledger.
-     *
-     * Memoized per request instance to avoid running the aggregate
-     * twice on every access.
+     * Computed points balance.
      */
     public function getPointsBalanceAttribute(): int
     {
@@ -479,6 +438,12 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             ->whereIn('status', self::PENDING_MPESA_STATUSES);
     }
 
+    public function completedEscortPayments(): HasMany
+    {
+        return $this->escortListingPayments()
+            ->where('status', MpesaTransaction::STATUS_COMPLETED);
+    }
+
     public function latestEscortPayment(): HasOne
     {
         return $this->hasOne(MpesaTransaction::class)
@@ -498,6 +463,18 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function hasPendingEscortPayment(): bool
     {
         return $this->pendingEscortPayments()->exists();
+    }
+
+    /**
+     * Whether the user has at least one successfully completed
+     * escort listing payment.
+     *
+     * This checks payment history, not whether the payment covers
+     * the current subscription period.
+     */
+    public function hasCompletedEscortPayment(): bool
+    {
+        return $this->completedEscortPayments()->exists();
     }
 
     public function totalSpentOnCoins(): float
@@ -523,31 +500,38 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 
     public function hasBlocked(User $other): bool
     {
-        return $this->blockedUsers()->whereKey($other->id)->exists();
+        return $this->blockedUsers()
+            ->whereKey($other->id)
+            ->exists();
     }
 
     public function isBlockedBy(User $other): bool
     {
-        return $this->blockedBy()->whereKey($other->id)->exists();
+        return $this->blockedBy()
+            ->whereKey($other->id)
+            ->exists();
     }
 
     public function hasLiked(User $other): bool
     {
-        return $this->likes()->where('liked_user_id', $other->id)->exists();
+        return $this->likes()
+            ->where('liked_user_id', $other->id)
+            ->exists();
     }
 
-    /**
-     * True if either side has blocked the other.
-     */
     public function isBlockedWith(User $other): bool
     {
-        return $this->hasBlocked($other) || $this->isBlockedBy($other);
+        return $this->hasBlocked($other)
+            || $this->isBlockedBy($other);
     }
 
     // ================================================================
     // SUBSCRIPTION / ESCORT HELPERS
     // ================================================================
 
+    /**
+     * Whether the user's general premium subscription is active.
+     */
     public function isPremium(): bool
     {
         return $this->tier === 'premium'
@@ -556,14 +540,54 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     }
 
     /**
+     * Whether the subscription dates indicate an active period.
+     *
+     * This does not independently verify that the current period
+     * was paid. Payment processing must activate these dates only
+     * after confirmed payment.
+     */
+    public function hasActiveEscortSubscription(): bool
+    {
+        return $this->subscription_started_at !== null
+            && $this->subscription_expires_at !== null
+            && $this->subscription_started_at->lte(now())
+            && $this->subscription_expires_at->gt(now());
+    }
+
+    /**
+     * Whether the escort subscription has expired.
+     */
+    public function hasExpiredEscortSubscription(): bool
+    {
+        return $this->subscription_expires_at !== null
+            && $this->subscription_expires_at->lte(now());
+    }
+
+    /**
      * Whether this user has an active escort listing.
      *
-     * Uses the loaded `profile` relation when available to avoid
-     * a redundant query.
+     * Listing status and subscription status are separate checks.
      */
     public function isEscort(): bool
     {
         return $this->profile?->hasActiveListing() ?? false;
+    }
+
+    /**
+     * Whether the escort can appear in public escort listings.
+     */
+    public function canAppearInEscortListings(): bool
+    {
+        return $this->isEscort()
+            && $this->hasActiveEscortSubscription();
+    }
+
+    /**
+     * Whether the escort needs to renew their subscription.
+     */
+    public function needsEscortSubscriptionRenewal(): bool
+    {
+        return !$this->hasActiveEscortSubscription();
     }
 
     // ================================================================
@@ -575,7 +599,9 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $query->where('is_online', true);
     }
 
-    /** @deprecated Use scopeOnline() — kept for backward compatibility. */
+    /**
+     * @deprecated Use scopeOnline().
+     */
     public function scopeActive(Builder $query): Builder
     {
         return $query->online();
@@ -586,16 +612,28 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $query->where('is_verified', true);
     }
 
+    /**
+     * Escort profiles that are approved, available, active,
+     * and within their subscription period.
+     */
     public function scopeEscorts(Builder $query): Builder
     {
-        return $query->whereHas('profile', function (Builder $profile): void {
-            $profile->escortTier()
-                ->approved()
-                ->available()
-                ->activeListing();
-        });
+        return $query
+            ->whereNotNull('subscription_started_at')
+            ->whereNotNull('subscription_expires_at')
+            ->where('subscription_started_at', '<=', now())
+            ->where('subscription_expires_at', '>', now())
+            ->whereHas('profile', function (Builder $profile): void {
+                $profile->escortTier()
+                    ->approved()
+                    ->available()
+                    ->activeListing();
+            });
     }
 
+    /**
+     * Online escorts with an active listing subscription.
+     */
     public function scopeActiveEscorts(Builder $query): Builder
     {
         return $query->escorts()->online();

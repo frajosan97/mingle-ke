@@ -1,13 +1,16 @@
-import { Link, router, usePage } from "@inertiajs/react";
+import { InertiaLinkProps, Link, router, usePage } from "@inertiajs/react";
 import { type PropsWithChildren, useEffect, useMemo, useState } from "react";
 import {
     Search,
-    User,
-    Key,
-    MessageSquare,
     LogOut,
-    ShieldQuestion,
-    Wallet2,
+    UserRound,
+    BriefcaseBusiness,
+    ShieldCheck,
+    MessageCircle,
+    Wallet,
+    PanelLeftClose,
+    PanelLeftOpen,
+    LucideIcon,
 } from "lucide-react";
 
 import { useCurrentUrl } from "@/hooks/use-current-url";
@@ -17,66 +20,18 @@ import { edit as editProfile } from "@/routes/profile";
 import { edit as editSecurity } from "@/routes/security";
 import { index as indexWallet } from "@/routes/wallets";
 import { manage as manageEscort } from "@/routes/escorts";
-import type { RouteDefinition } from "@/wayfinder";
-
-type NavHref = RouteDefinition<"get"> | string;
 
 interface SidebarNavItem {
     id: string;
     title: string;
     description: string;
-    href: NavHref;
-    icon: typeof User;
+    href: NonNullable<InertiaLinkProps["href"]>;
+    icon: LucideIcon;
 }
 
 interface Props extends PropsWithChildren {
     showSetting?: boolean;
 }
-
-const SIDEBAR_NAV_ITEMS: SidebarNavItem[] = [
-    {
-        id: "profile",
-        title: "Profile",
-        description: "Name, phone number, gender, profile photo, age, location",
-        href: editProfile(),
-        icon: User,
-    },
-    {
-        id: "escort",
-        title: "Become an Escort",
-        description: "Escort profile management",
-        href: manageEscort(),
-        icon: ShieldQuestion,
-    },
-    {
-        id: "account",
-        title: "Account",
-        description: "Password, 2FA, passkeys, notifications",
-        href: editSecurity(),
-        icon: Key,
-    },
-    {
-        id: "chats",
-        title: "Chats",
-        description: "Theme, chat history",
-        href: editAppearance(),
-        icon: MessageSquare,
-    },
-    {
-        id: "wallet",
-        title: "Wallet",
-        description: "Coins, Balances, Points, Payouts, History",
-        href: indexWallet(),
-        icon: Wallet2,
-    },
-    {
-        id: "logout",
-        title: "Logout",
-        description: "",
-        href: "/logout",
-        icon: LogOut,
-    },
-];
 
 interface AuthUser {
     id: number;
@@ -85,6 +40,55 @@ interface AuthUser {
 }
 
 type MobileView = "menu" | "form";
+
+const SIDEBAR_NAV_ITEMS: SidebarNavItem[] = [
+    {
+        id: "profile",
+        title: "Personal Profile",
+        description:
+            "Manage your personal information, photo and contact details",
+        href: editProfile(),
+        icon: UserRound,
+    },
+    {
+        id: "escort",
+        title: "Escort Profile",
+        description:
+            "Manage your escort profile, photos, services and availability.",
+        href: manageEscort(),
+        icon: BriefcaseBusiness,
+    },
+    {
+        id: "account",
+        title: "Security & Privacy",
+        description: "Password, two-factor authentication and passkeys",
+        href: editSecurity(),
+        icon: ShieldCheck,
+    },
+    {
+        id: "chats",
+        title: "Chat Preferences",
+        description: "Customize chat appearance and conversation preferences",
+        href: editAppearance(),
+        icon: MessageCircle,
+    },
+    {
+        id: "wallet",
+        title: "My Wallet",
+        description: "Coins, balances, rewards, payouts and transactions",
+        href: indexWallet(),
+        icon: Wallet,
+    },
+    {
+        id: "logout",
+        title: "Sign Out",
+        description: "Securely sign out of your account",
+        href: "/logout",
+        icon: LogOut,
+    },
+];
+
+const SIDEBAR_STORAGE_KEY = "settings-sidebar-collapsed";
 
 export default function SettingsLayout({
     children,
@@ -99,8 +103,29 @@ export default function SettingsLayout({
     const { auth } = props;
 
     const [search, setSearch] = useState("");
+    const [isCollapsed, setIsCollapsed] = useState(false);
 
-    // Mobile view state
+    // Restore desktop sidebar preference.
+    useEffect(() => {
+        try {
+            setIsCollapsed(
+                localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true",
+            );
+        } catch {
+            // Ignore unavailable localStorage.
+        }
+    }, []);
+
+    // Persist desktop sidebar preference.
+    useEffect(() => {
+        try {
+            localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isCollapsed));
+        } catch {
+            // Ignore unavailable localStorage.
+        }
+    }, [isCollapsed]);
+
+    // Mobile navigation state.
     const isOnSubPage = useMemo(
         () =>
             SIDEBAR_NAV_ITEMS.some(
@@ -120,7 +145,7 @@ export default function SettingsLayout({
         setMobileView(isOnSubPage ? "form" : "menu");
     }, [isOnSubPage]);
 
-    // Filtered settings menu
+    // Filtered settings menu.
     const filteredMenu = useMemo(() => {
         const q = search.trim().toLowerCase();
 
@@ -141,6 +166,10 @@ export default function SettingsLayout({
         router.post("/logout");
     };
 
+    const toggleSidebar = () => {
+        setIsCollapsed((prev) => !prev);
+    };
+
     return (
         <>
             {/* Sidebar */}
@@ -148,19 +177,56 @@ export default function SettingsLayout({
                 <aside
                     aria-label="Settings navigation"
                     className={cn(
-                        "flex w-full flex-col border-r border-border bg-card md:w-[380px] lg:w-[420px]",
+                        "flex w-full shrink-0 flex-col border-r border-border bg-card transition-[width] duration-300 ease-in-out md:flex",
+                        isCollapsed ? "md:w-20" : "md:w-[380px] lg:w-[420px]",
                         isOnSubPage && "hidden md:flex",
                     )}
                 >
                     {/* Header */}
-                    <header className="flex h-[60px] shrink-0 items-center border-b border-border/50 px-5">
-                        <h1 className="text-lg font-semibold text-foreground">
+                    <header
+                        className={cn(
+                            "flex h-[60px] shrink-0 items-center justify-between border-b border-border/50 px-5",
+                            isCollapsed && "md:justify-center md:px-2",
+                        )}
+                    >
+                        <h1
+                            className={cn(
+                                "truncate text-lg font-semibold text-foreground",
+                                isCollapsed && "md:hidden",
+                            )}
+                        >
                             {displayName}
                         </h1>
+
+                        {/* Desktop-only collapse button */}
+                        <button
+                            type="button"
+                            onClick={toggleSidebar}
+                            aria-label={
+                                isCollapsed
+                                    ? "Expand sidebar"
+                                    : "Collapse sidebar"
+                            }
+                            aria-expanded={!isCollapsed}
+                            title={
+                                isCollapsed
+                                    ? "Expand sidebar"
+                                    : "Collapse sidebar"
+                            }
+                            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:flex"
+                        >
+                            {isCollapsed ? (
+                                <PanelLeftOpen className="h-5 w-5" />
+                            ) : (
+                                <PanelLeftClose className="h-5 w-5" />
+                            )}
+                        </button>
                     </header>
 
-                    {/* Search */}
-                    <div className="px-3 py-3">
+                    {/* Search - hidden only when collapsed on desktop */}
+                    <div
+                        className={cn("px-3 py-3", isCollapsed && "md:hidden")}
+                    >
                         <label
                             htmlFor="settings-search"
                             className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/60 px-3 py-2 transition-colors focus-within:border-brand-pink/40 focus-within:ring-2 focus-within:ring-brand-pink/20"
@@ -186,7 +252,12 @@ export default function SettingsLayout({
                     {/* Sidebar Content */}
                     <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-4">
                         {/* Profile Avatar */}
-                        <div className="group relative mx-auto mb-8 mt-4 flex w-32 cursor-pointer flex-col items-center justify-center">
+                        <div
+                            className={cn(
+                                "group relative mx-auto mb-8 mt-4 flex w-32 flex-col items-center justify-center",
+                                isCollapsed && "md:hidden",
+                            )}
+                        >
                             <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-4 border-background bg-primary shadow-xl ring-1 ring-border/50 transition-transform hover:scale-105">
                                 {avatarUrl ? (
                                     <img
@@ -217,7 +288,6 @@ export default function SettingsLayout({
                             ) : (
                                 filteredMenu.map((item) => {
                                     const Icon = item.icon;
-
                                     const isLogout = item.id === "logout";
 
                                     const isActive =
@@ -227,6 +297,8 @@ export default function SettingsLayout({
 
                                     const itemClassName = cn(
                                         "group flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left transition-colors",
+                                        isCollapsed &&
+                                            "md:justify-center md:px-2",
                                         isActive
                                             ? "bg-accent"
                                             : "hover:bg-accent/50",
@@ -249,7 +321,13 @@ export default function SettingsLayout({
                                                 />
                                             </div>
 
-                                            <div className="min-w-0 flex-1">
+                                            {/* Navigation text */}
+                                            <div
+                                                className={cn(
+                                                    "min-w-0 flex-1",
+                                                    isCollapsed && "md:hidden",
+                                                )}
+                                            >
                                                 <p
                                                     className={cn(
                                                         "truncate text-[15px] font-semibold",
@@ -261,12 +339,17 @@ export default function SettingsLayout({
                                                     {item.title}
                                                 </p>
 
-                                                {item.description && (
-                                                    <p className="truncate text-[13px] text-muted-foreground">
-                                                        {item.description}
-                                                    </p>
-                                                )}
+                                                <p className="truncate text-[13px] text-muted-foreground">
+                                                    {item.description}
+                                                </p>
                                             </div>
+
+                                            {/* Accessible label for collapsed navigation */}
+                                            {isCollapsed && (
+                                                <span className="sr-only">
+                                                    {item.title}
+                                                </span>
+                                            )}
                                         </>
                                     );
 
@@ -277,6 +360,11 @@ export default function SettingsLayout({
                                                 key={item.id}
                                                 type="button"
                                                 onClick={handleLogout}
+                                                title={
+                                                    isCollapsed
+                                                        ? item.title
+                                                        : undefined
+                                                }
                                                 className={cn(
                                                     itemClassName,
                                                     "text-left",
@@ -296,6 +384,11 @@ export default function SettingsLayout({
                                             }
                                             aria-current={
                                                 isActive ? "page" : undefined
+                                            }
+                                            title={
+                                                isCollapsed
+                                                    ? item.title
+                                                    : undefined
                                             }
                                             className={itemClassName}
                                         >

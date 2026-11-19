@@ -1,32 +1,42 @@
 import {
-    Calendar,
+    CheckCircle2,
     ChevronRight,
-    Crown,
+    Clock,
     Gift,
-    Image,
     MessageCircle,
-    Settings,
     ShieldCheck,
     Sparkles,
-    UserRound,
-    Wallet,
+    XCircle,
 } from "lucide-react";
 import { Head, Link } from "@inertiajs/react";
 import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { create } from "@/routes/escorts";
+import EscortController from "@/actions/App/Http/Controllers/EscortController";
+
+type Subscription = {
+    isActive: boolean;
+    isExpired: boolean;
+    needsRenewal: boolean;
+    startedAt?: string | null;
+    expiresAt?: string | null;
+    plan?: string | null;
+    autoRenew?: boolean;
+};
 
 type Props = {
     isEscort?: boolean;
     isVerified?: boolean;
+    canAppearInListings?: boolean;
+    subscription?: Subscription;
 };
 
 const ESCORT_BENEFITS = [
     {
-        icon: Crown,
+        icon: Sparkles,
         title: "Premium profile listing",
         description:
-            "Get featured at the top of Discover and stand out from the crowd.",
+            "Get featured at the top of Escorts and stand out from the crowd.",
     },
     {
         icon: MessageCircle,
@@ -42,60 +52,193 @@ const ESCORT_BENEFITS = [
     {
         icon: ShieldCheck,
         title: "Verified badge",
-        description: "Get a verified checkmark after we confirm your identity.",
+        description:
+            "Become eligible for account verification after subscribing and completing the review process.",
     },
 ];
 
-const MANAGEMENT_ITEMS = [
-    {
-        icon: UserRound,
-        title: "My profile",
-        description: "Manage your public escort profile and personal details.",
-        href: "/escorts/profile",
-    },
-    {
-        icon: Image,
-        title: "Gallery",
-        description: "Manage your profile photos and media.",
-        href: "/escorts/gallery",
-    },
-    {
-        icon: Wallet,
-        title: "Rates and services",
-        description: "Manage your rates and the services you offer.",
-        href: "/escorts/rates",
-    },
-    {
-        icon: Calendar,
-        title: "Availability",
-        description: "Manage your availability and schedule.",
-        href: "/escorts/availability",
-    },
-];
+function formatDate(date?: string | null): string {
+    if (!date) {
+        return "Not available";
+    }
+
+    const parsed = new Date(date);
+
+    if (Number.isNaN(parsed.getTime())) {
+        return "Not available";
+    }
+
+    return new Intl.DateTimeFormat(undefined, {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+    }).format(parsed);
+}
+
+function SubscriptionStatus({
+    subscription,
+    canAppearInListings,
+}: {
+    subscription: Subscription;
+    canAppearInListings: boolean;
+}) {
+    const isActive = subscription.isActive && !subscription.isExpired;
+
+    return (
+        <section
+            className={`rounded-2xl border p-5 ${
+                isActive
+                    ? "border-brand-green/30 bg-brand-green/5"
+                    : "border-amber-500/30 bg-amber-500/5"
+            }`}
+        >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                <span
+                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
+                        isActive
+                            ? "bg-brand-green/15 text-brand-green"
+                            : "bg-amber-500/15 text-amber-600"
+                    }`}
+                >
+                    {isActive ? (
+                        <CheckCircle2 className="h-6 w-6" />
+                    ) : (
+                        <Clock className="h-6 w-6" />
+                    )}
+                </span>
+
+                <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="font-semibold text-foreground">
+                            Escort listing subscription
+                        </h2>
+
+                        {isActive && (
+                            <span className="rounded-full bg-brand-green/15 px-2.5 py-1 text-xs font-semibold text-brand-green">
+                                Active
+                            </span>
+                        )}
+                    </div>
+
+                    <p className="mt-1 text-sm text-muted-foreground">
+                        {isActive
+                            ? "Your listing subscription is active. Your account is eligible for verification."
+                            : subscription.isExpired
+                              ? "Your listing subscription has expired. Renew to become eligible for verification and appear on Escorts again."
+                              : "You do not currently have an active listing subscription. Subscribe to become eligible for account verification and appear on Escorts."}
+                    </p>
+
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl border border-border/60 bg-card/70 p-3">
+                            <p className="text-xs text-muted-foreground">
+                                Subscription plan
+                            </p>
+
+                            <p className="mt-1 text-sm font-semibold text-foreground">
+                                {subscription.plan || "No active plan"}
+                            </p>
+                        </div>
+
+                        <div className="rounded-xl border border-border/60 bg-card/70 p-3">
+                            <p className="text-xs text-muted-foreground">
+                                {isActive ? "Expires on" : "Last expiry date"}
+                            </p>
+
+                            <p className="mt-1 text-sm font-semibold text-foreground">
+                                {formatDate(subscription.expiresAt)}
+                            </p>
+                        </div>
+                    </div>
+
+                    {subscription.autoRenew !== undefined && (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                            Automatic renewal:{" "}
+                            <span className="font-semibold text-foreground">
+                                {subscription.autoRenew
+                                    ? "Enabled"
+                                    : "Disabled"}
+                            </span>
+                        </p>
+                    )}
+
+                    {!isActive && (
+                        <div className="mt-5">
+                            <Link
+                                href={EscortController.subscription().url}
+                                className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+                            >
+                                {subscription.isExpired
+                                    ? "Renew subscription"
+                                    : "Choose a subscription"}
+                                <ChevronRight className="h-4 w-4" />
+                            </Link>
+                        </div>
+                    )}
+
+                    {isActive && (
+                        <p className="mt-4 flex items-center gap-2 text-xs font-medium text-brand-green">
+                            <CheckCircle2 className="h-4 w-4" />
+                            Your subscription is currently valid.
+                        </p>
+                    )}
+                </div>
+            </div>
+
+            <div className="mt-5 border-t border-border/60 pt-4">
+                <div className="flex items-center gap-2">
+                    {canAppearInListings ? (
+                        <CheckCircle2 className="h-4 w-4 text-brand-green" />
+                    ) : (
+                        <XCircle className="h-4 w-4 text-amber-600" />
+                    )}
+
+                    <p className="text-sm font-medium text-foreground">
+                        {canAppearInListings
+                            ? "Your profile can appear on Escorts."
+                            : "Your profile is currently not eligible to appear on Escorts."}
+                    </p>
+                </div>
+            </div>
+        </section>
+    );
+}
 
 export default function EscortsIndex({
     isEscort = false,
     isVerified = false,
+    canAppearInListings = false,
+    subscription,
 }: Props) {
     const [showBenefits, setShowBenefits] = useState(false);
 
+    // Verification is only possible with an active subscription.
+    const hasActiveSubscription =
+        subscription?.isActive === true && subscription?.isExpired !== true;
+
+    const accountIsVerified = hasActiveSubscription && isVerified;
+
+    const verificationStatus = !hasActiveSubscription
+        ? "locked"
+        : accountIsVerified
+          ? "verified"
+          : "pending";
+
     return (
         <>
-            <Head title="Escort dashboard" />
+            <Head title="Escort profile" />
 
             <div className="space-y-8 pb-8">
                 <PageHeader
-                    title="Escort dashboard"
+                    title="Escort profile"
                     description={
                         isEscort
-                            ? "Manage your escort profile, services and availability."
+                            ? "Manage your escort profile, subscription, photos, services and availability."
                             : "Become an escort, grow your visibility and connect with clients."
                     }
                     backHref="/settings"
                 />
 
                 {!isEscort ? (
-                    /* Become an escort */
                     <div className="overflow-hidden rounded-2xl border border-brand-pink/30 bg-gradient-to-br from-brand-pink/5 via-card to-brand-orange/5 p-6 sm:p-8">
                         <div className="flex items-start gap-4">
                             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-white shadow-glow-pink">
@@ -127,6 +270,7 @@ export default function EscortsIndex({
                                                     <p className="text-sm font-semibold text-foreground">
                                                         {benefit.title}
                                                     </p>
+
                                                     <p className="text-xs text-muted-foreground">
                                                         {benefit.description}
                                                     </p>
@@ -171,18 +315,23 @@ export default function EscortsIndex({
                                                 services and gallery.
                                             </li>
                                             <li>
-                                                Submit your profile for review.
+                                                Choose and pay for a listing
+                                                subscription.
                                             </li>
                                             <li>
-                                                Once approved, your profile
-                                                becomes visible on Discover.
+                                                Your account becomes eligible
+                                                for verification review.
+                                            </li>
+                                            <li>
+                                                Once approved and subscribed,
+                                                your profile can appear on
+                                                Escorts.
                                             </li>
                                         </ol>
 
                                         <p className="mt-3 text-xs">
-                                            You can pause or delete your listing
-                                            at any time, subject to platform
-                                            rules.
+                                            You can manage your profile even if
+                                            your subscription expires.
                                         </p>
                                     </div>
                                 )}
@@ -190,10 +339,9 @@ export default function EscortsIndex({
                         </div>
                     </div>
                 ) : (
-                    /* Escort management */
                     <div className="space-y-8">
-                        <div className="flex flex-col gap-4 rounded-2xl border border-brand-green/30 bg-brand-green/5 p-5 sm:flex-row sm:items-center">
-                            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-green/15 text-brand-green">
+                        <section className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 sm:flex-row sm:items-center">
+                            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                                 <ShieldCheck className="h-6 w-6" />
                             </span>
 
@@ -203,78 +351,53 @@ export default function EscortsIndex({
                                         Your escort account
                                     </h2>
 
-                                    {isVerified ? (
+                                    {verificationStatus === "verified" && (
                                         <span className="rounded-full bg-brand-green/15 px-2.5 py-1 text-xs font-semibold text-brand-green">
                                             Verified
                                         </span>
-                                    ) : (
+                                    )}
+
+                                    {verificationStatus === "pending" && (
                                         <span className="rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-semibold text-amber-600">
                                             Verification pending
+                                        </span>
+                                    )}
+
+                                    {verificationStatus === "locked" && (
+                                        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                                            Verification locked
                                         </span>
                                     )}
                                 </div>
 
                                 <p className="mt-1 text-sm text-muted-foreground">
-                                    Your escort account is active. Manage your
-                                    listing and keep your profile updated.
+                                    {verificationStatus === "verified"
+                                        ? "Your subscription is active and your escort profile has been approved."
+                                        : verificationStatus === "pending"
+                                          ? "Your subscription is active. Your escort profile is awaiting verification and approval."
+                                          : "Your account cannot be verified until you purchase an active escort listing subscription."}
                                 </p>
-                            </div>
-                        </div>
 
-                        <section className="space-y-4">
-                            <div>
-                                <h2 className="text-base font-semibold text-foreground">
-                                    Manage your listing
-                                </h2>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                    Everything you need to manage your escort
-                                    profile.
-                                </p>
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                {MANAGEMENT_ITEMS.map((item) => {
-                                    const Icon = item.icon;
-
-                                    return (
-                                        <Link
-                                            key={item.title}
-                                            href={item.href}
-                                            className="group flex items-start gap-4 rounded-xl border border-border bg-card p-4 transition hover:border-brand-pink/40 hover:bg-accent/40"
-                                        >
-                                            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-brand-pink">
-                                                <Icon className="h-5 w-5" />
-                                            </span>
-
-                                            <div className="min-w-0 flex-1">
-                                                <h3 className="text-sm font-semibold text-foreground">
-                                                    {item.title}
-                                                </h3>
-                                                <p className="mt-1 text-xs text-muted-foreground">
-                                                    {item.description}
-                                                </p>
-                                            </div>
-
-                                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-1 group-hover:text-brand-pink" />
-                                        </Link>
-                                    );
-                                })}
+                                {verificationStatus === "locked" && (
+                                    <Link
+                                        href={
+                                            EscortController.subscription().url
+                                        }
+                                        className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                                    >
+                                        View subscriptions
+                                        <ChevronRight className="h-4 w-4" />
+                                    </Link>
+                                )}
                             </div>
                         </section>
 
-                        <section className="rounded-2xl border border-border bg-card p-5">
-                            <div className="flex items-center gap-3">
-                                <Settings className="h-5 w-5 text-muted-foreground" />
-                                <h2 className="font-semibold text-foreground">
-                                    Account management
-                                </h2>
-                            </div>
-
-                            <p className="mt-2 text-sm text-muted-foreground">
-                                More account controls, listing preferences and
-                                management tools will be available here.
-                            </p>
-                        </section>
+                        {subscription && (
+                            <SubscriptionStatus
+                                subscription={subscription}
+                                canAppearInListings={canAppearInListings}
+                            />
+                        )}
                     </div>
                 )}
             </div>
@@ -283,5 +406,10 @@ export default function EscortsIndex({
 }
 
 EscortsIndex.layout = {
-    breadcrumbs: [{ title: "Escorts", href: "/escorts" }],
+    breadcrumbs: [
+        {
+            title: "Escorts",
+            href: "/escorts",
+        },
+    ],
 };

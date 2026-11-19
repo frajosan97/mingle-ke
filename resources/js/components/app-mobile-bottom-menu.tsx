@@ -1,4 +1,4 @@
-// resources/js/components/navigation/mobile-bottom-nav.tsx
+// resources/js/components/mobile-bottom-nav.tsx
 import { Link, usePage } from "@inertiajs/react";
 import { cn } from "@/lib/utils";
 import { buildMobileNavItems } from "@/lib/nav-items";

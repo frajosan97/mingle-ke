@@ -1,5 +1,4 @@
 // resources/js/layouts/guest/guest-header.tsx
-
 import { Link } from "@inertiajs/react";
 import { useEffect, useState } from "react";
 import {
@@ -7,7 +6,6 @@ import {
     Menu,
     MessageCircle,
     Moon,
-    Settings,
     Sun,
     User as UserIcon,
     Wallet,
@@ -15,6 +13,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { login, register } from "@/routes";
+import { create as becomeAnEscort } from "@/routes/escorts";
 import { useAppearance } from "@/hooks/use-appearance";
 import AppLogo from "../../components/app-logo";
 
@@ -206,7 +205,7 @@ export default function GuestHeader({ user }: { user?: HeaderUser | null }) {
                                     </span>
                                 ) : (
                                     <Link
-                                        href="/escorts/listing-fee"
+                                        href={becomeAnEscort()}
                                         className={`hidden md:inline-block ${PRIMARY_CTA}`}
                                     >
                                         Become an escort
@@ -308,7 +307,7 @@ export default function GuestHeader({ user }: { user?: HeaderUser | null }) {
 
                                 {!user.listing_active && (
                                     <Link
-                                        href="/escorts/listing-fee"
+                                        href={becomeAnEscort()}
                                         onClick={closeAll}
                                         className="mt-1 rounded-lg bg-primary px-4 py-2.5 text-center text-sm font-bold text-primary-foreground"
                                     >
