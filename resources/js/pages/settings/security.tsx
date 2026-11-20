@@ -59,7 +59,8 @@ export default function Security(props: Props) {
                 <PageHeader
                     title="Security settings"
                     description="Manage your password, two-factor authentication and passkeys. Keep your account secure with a long, random password."
-                    backHref={"/settings"}
+                    backHref="/settings"
+                    backHrefTitle="Back to Settings"
                 />
 
                 {/* ── Password ───────────────────────────── */}

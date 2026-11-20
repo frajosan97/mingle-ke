@@ -51,8 +51,10 @@ export default function Wallets() {
                 <PageHeader
                     title="Wallets"
                     description="Manage your coins, points, and withdrawals."
+                    backHref="/settings"
+                    backHrefTitle="Back to Settings"
                 />
-                
+
                 <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
                     {wallets.map((wallet) => {
                         const Icon = wallet.icon;

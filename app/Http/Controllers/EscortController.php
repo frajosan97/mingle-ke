@@ -269,7 +269,7 @@ class EscortController extends Controller
     {
         $user = $request->user();
 
-        if (!$user->isEscort()) {
+        if (!$user->profile()->exists()) {
             return redirect()->route('escorts.manage');
         }
 

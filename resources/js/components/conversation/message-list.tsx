@@ -25,9 +25,7 @@ interface Props {
 }
 
 interface DayGroup {
-    /** ISO date string (YYYY-MM-DD) — stable key per calendar day. */
     key: string;
-    /** Human label shown in the divider ("Today", "Yesterday", ...). */
     label: string;
     messages: ConversationMessage[];
 }

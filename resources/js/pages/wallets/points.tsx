@@ -1,8 +1,6 @@
-import { Head, Link, usePage } from "@inertiajs/react";
+import { Head, usePage } from "@inertiajs/react";
 import {
     ArrowDownLeft,
-    ArrowLeft,
-    ArrowRight,
     ArrowUpRight,
     Award,
     Gift,
@@ -12,22 +10,14 @@ import {
     Wallet,
 } from "lucide-react";
 
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
 import { formatNumber, formatDate } from "@/lib/wallet/formatters";
 import { StatsCards } from "@/components/stats-cards";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { EmptyState } from "@/components/ui/empty-state";
 import { SectionCard } from "@/components/ui/section-card";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+
 import type {
-    PaginationLink,
     PointDirection,
     PointTransaction,
     PointsWalletProps,
@@ -104,60 +94,6 @@ function PointDirectionBadge({ direction }: { direction: PointDirection }) {
     return <StatusBadge config={getDirectionConfig(direction)} />;
 }
 
-function PointTransactionTableRow({
-    transaction,
-}: {
-    transaction: PointTransaction;
-}) {
-    const Icon = getTransactionIcon(transaction.type);
-    const config = getDirectionConfig(transaction.direction);
-
-    return (
-        <TableRow>
-            <TableCell>
-                <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-                        <Icon className="h-4 w-4 text-muted-foreground" />
-                    </div>
-
-                    <div className="min-w-0">
-                        <p className="truncate font-medium">
-                            {getTransactionLabel(transaction.type)}
-                        </p>
-
-                        <p className="mt-0.5 max-w-xs truncate text-xs text-muted-foreground">
-                            {transaction.description ||
-                                transaction.reference ||
-                                "Points transaction"}
-                        </p>
-                    </div>
-                </div>
-            </TableCell>
-
-            <TableCell>
-                <PointDirectionBadge direction={transaction.direction} />
-            </TableCell>
-
-            <TableCell>
-                <span
-                    className={`whitespace-nowrap font-semibold tabular-nums ${config.amountClass}`}
-                >
-                    {config.prefix}
-                    {formatNumber(transaction.points)}
-                </span>
-            </TableCell>
-
-            <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
-                {transaction.reference || "—"}
-            </TableCell>
-
-            <TableCell className="whitespace-nowrap text-muted-foreground">
-                {formatDate(transaction.created_at)}
-            </TableCell>
-        </TableRow>
-    );
-}
-
 function PointTransactionMobileCard({
     transaction,
 }: {
@@ -215,72 +151,70 @@ function PointTransactionMobileCard({
     );
 }
 
-function PointsPagination({ links }: { links: PaginationLink[] }) {
-    if (!links.length || links.length <= 3) {
-        return null;
-    }
+const pointColumns: DataTableColumn<PointTransaction>[] = [
+    {
+        key: "transaction",
+        header: "Transaction",
+        cell: (transaction) => {
+            const Icon = getTransactionIcon(transaction.type);
 
-    const previous = links[0];
-    const next = links[links.length - 1];
-    const pages = links.slice(1, -1);
+            return (
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                        <Icon className="h-4 w-4 text-muted-foreground" />
+                    </div>
 
-    return (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-4">
-            <Link
-                href={previous.url || "#"}
-                preserveScroll
-                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                    previous.url
-                        ? "hover:bg-muted"
-                        : "pointer-events-none opacity-40"
-                }`}
-                aria-disabled={!previous.url}
-            >
-                <ArrowLeft className="h-4 w-4" />
-                Previous
-            </Link>
+                    <div className="min-w-0">
+                        <p className="truncate font-medium">
+                            {getTransactionLabel(transaction.type)}
+                        </p>
 
-            <div className="flex flex-wrap items-center gap-1">
-                {pages.map((link, index) => {
-                    const label = link.label.replace(/<[^>]*>/g, "").trim();
+                        <p className="mt-0.5 max-w-xs truncate text-xs text-muted-foreground">
+                            {transaction.description ||
+                                transaction.reference ||
+                                "Points transaction"}
+                        </p>
+                    </div>
+                </div>
+            );
+        },
+    },
+    {
+        key: "direction",
+        header: "Direction",
+        cell: (transaction) => (
+            <PointDirectionBadge direction={transaction.direction} />
+        ),
+    },
+    {
+        key: "points",
+        header: "Points",
+        cell: (transaction) => {
+            const config = getDirectionConfig(transaction.direction);
 
-                    return (
-                        <Link
-                            key={`${label}-${index}`}
-                            href={link.url || "#"}
-                            preserveScroll
-                            aria-current={link.active ? "page" : undefined}
-                            aria-disabled={!link.url}
-                            className={`flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-sm transition ${
-                                link.active
-                                    ? "bg-primary text-primary-foreground"
-                                    : link.url
-                                      ? "hover:bg-muted"
-                                      : "pointer-events-none opacity-40"
-                            }`}
-                        >
-                            {label}
-                        </Link>
-                    );
-                })}
-            </div>
-
-            <Link
-                href={next.url || "#"}
-                preserveScroll
-                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                    next.url
-                        ? "hover:bg-muted"
-                        : "pointer-events-none opacity-40"
-                }`}
-                aria-disabled={!next.url}
-            >
-                Next
-                <ArrowRight className="h-4 w-4" />
-            </Link>
-        </div>
-    );
-}
+            return (
+                <span
+                    className={`whitespace-nowrap font-semibold tabular-nums ${config.amountClass}`}
+                >
+                    {config.prefix}
+                    {formatNumber(transaction.points)}
+                </span>
+            );
+        },
+    },
+    {
+        key: "reference",
+        header: "Reference",
+        className: "max-w-[200px] truncate text-sm text-muted-foreground",
+        cell: (transaction) => transaction.reference || "—",
+    },
+    {
+        key: "date",
+        header: "Date",
+        className: "whitespace-nowrap text-muted-foreground",
+        cell: (transaction) => formatDate(transaction.created_at),
+    },
+];
 
 export default function PointsWallet() {
     const { summary, transactions } = usePage<PointsWalletProps>().props;
@@ -288,9 +222,6 @@ export default function PointsWallet() {
     const pointsBalance = summary?.points_balance ?? 0;
     const totalEarned = summary?.total_earned ?? 0;
     const totalSpent = summary?.total_spent ?? 0;
-
-    const records = transactions?.data ?? [];
-    const paginationLinks = transactions?.links ?? [];
 
     return (
         <>
@@ -342,55 +273,22 @@ export default function PointsWallet() {
                     description="A record of all points credited and deducted from your account."
                     meta={`${formatNumber(transactions?.total ?? 0)} transactions`}
                 >
-                    {records.length > 0 ? (
-                        <>
-                            {/* Desktop table */}
-                            <div className="hidden overflow-x-auto md:block">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Transaction</TableHead>
-
-                                            <TableHead>Direction</TableHead>
-
-                                            <TableHead>Points</TableHead>
-
-                                            <TableHead>Reference</TableHead>
-
-                                            <TableHead>Date</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-
-                                    <TableBody>
-                                        {records.map((transaction) => (
-                                            <PointTransactionTableRow
-                                                key={transaction.id}
-                                                transaction={transaction}
-                                            />
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
-
-                            {/* Mobile cards */}
-                            <div className="space-y-3 p-4 md:hidden">
-                                {records.map((transaction) => (
-                                    <PointTransactionMobileCard
-                                        key={transaction.id}
-                                        transaction={transaction}
-                                    />
-                                ))}
-                            </div>
-
-                            <PointsPagination links={paginationLinks} />
-                        </>
-                    ) : (
-                        <EmptyState
-                            icon={ReceiptText}
-                            title="No points transactions yet"
-                            description="Your points earnings and deductions will appear here once you start earning or using points."
-                        />
-                    )}
+                    <DataTable
+                        data={transactions}
+                        columns={pointColumns}
+                        getRowKey={(transaction) => transaction.id}
+                        renderMobileCard={(transaction) => (
+                            <PointTransactionMobileCard
+                                transaction={transaction}
+                            />
+                        )}
+                        emptyState={{
+                            icon: <ReceiptText />,
+                            title: "No points transactions yet",
+                            description:
+                                "Your points earnings and deductions will appear here once you start earning or using points.",
+                        }}
+                    />
                 </SectionCard>
             </div>
         </>

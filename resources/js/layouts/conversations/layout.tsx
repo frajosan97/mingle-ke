@@ -1,8 +1,8 @@
 // resources/js/layouts/conversations-layout.tsx
 
-import { type PropsWithChildren, useMemo, useState } from "react";
+import { type PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { usePage } from "@inertiajs/react";
-import { Search } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ConversationList from "@/components/conversation/conversation-list";
 
@@ -11,6 +11,7 @@ interface Props extends PropsWithChildren {
 }
 
 const CONVERSATION_URL_RE = /^\/conversations\/(\d+)/;
+const SIDEBAR_STORAGE_KEY = "conversations-sidebar-collapsed";
 
 export default function ConversationsLayout({
     children,
@@ -18,6 +19,7 @@ export default function ConversationsLayout({
 }: Props) {
     const { url } = usePage();
     const [search, setSearch] = useState("");
+    const [isCollapsed, setIsCollapsed] = useState(false);
 
     const { isConversationOpen, activeId } = useMemo(() => {
         const match = url.match(CONVERSATION_URL_RE);
@@ -28,6 +30,25 @@ export default function ConversationsLayout({
         };
     }, [url]);
 
+    // Restore and persist sidebar preference.
+    useEffect(() => {
+        try {
+            setIsCollapsed(
+                localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true",
+            );
+        } catch {
+            // Storage may be unavailable.
+        }
+    }, []);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isCollapsed));
+        } catch {
+            // Storage may be unavailable.
+        }
+    }, [isCollapsed]);
+
     return (
         <>
             {/* Inbox Sidebar */}
@@ -35,19 +56,57 @@ export default function ConversationsLayout({
                 <aside
                     aria-label="Conversations"
                     className={cn(
-                        "flex w-full flex-col border-r border-border bg-card md:w-[380px] lg:w-[420px]",
+                        "flex w-full shrink-0 flex-col border-r border-border bg-card transition-[width] duration-300 ease-in-out",
+                        isCollapsed ? "md:w-20" : "md:w-[380px] lg:w-[420px]",
                         isConversationOpen && "hidden md:flex",
                     )}
                 >
-                    {/* Header */}
-                    <header className="flex h-[60px] shrink-0 items-center border-b border-border/50 px-5">
-                        <h1 className="text-lg font-semibold text-foreground">
+                    {/* Sidebar Header */}
+                    <header
+                        className={cn(
+                            "flex h-[60px] shrink-0 items-center justify-between border-b border-border/50 px-5",
+                            isCollapsed && "md:justify-center md:px-2",
+                        )}
+                    >
+                        <h1
+                            className={cn(
+                                "truncate text-lg font-semibold text-foreground",
+                                isCollapsed && "md:hidden",
+                            )}
+                        >
                             Chats
                         </h1>
+
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setIsCollapsed((previous) => !previous)
+                            }
+                            aria-label={
+                                isCollapsed
+                                    ? "Expand sidebar"
+                                    : "Collapse sidebar"
+                            }
+                            aria-expanded={!isCollapsed}
+                            title={
+                                isCollapsed
+                                    ? "Expand sidebar"
+                                    : "Collapse sidebar"
+                            }
+                            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:flex"
+                        >
+                            {isCollapsed ? (
+                                <PanelLeftOpen className="h-5 w-5" />
+                            ) : (
+                                <PanelLeftClose className="h-5 w-5" />
+                            )}
+                        </button>
                     </header>
 
-                    {/* Search */}
-                    <div className="px-3 py-3">
+                    {/* Sidebar Search */}
+                    <div
+                        className={cn("px-3 py-3", isCollapsed && "md:hidden")}
+                    >
                         <label
                             htmlFor="conversation-search"
                             className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/60 px-3 py-2 transition-colors focus-within:border-brand-pink/40 focus-within:ring-2 focus-within:ring-brand-pink/20"
@@ -61,7 +120,9 @@ export default function ConversationsLayout({
                                 id="conversation-search"
                                 type="search"
                                 value={search}
-                                onChange={(e) => setSearch(e.target.value)}
+                                onChange={(event) =>
+                                    setSearch(event.target.value)
+                                }
                                 placeholder="Search messages..."
                                 autoComplete="off"
                                 spellCheck={false}
@@ -70,14 +131,18 @@ export default function ConversationsLayout({
                         </label>
                     </div>
 
-                    {/* Conversation List */}
+                    {/* Sidebar Content */}
                     <div className="flex-1 overflow-y-auto scrollbar-thin">
-                        <ConversationList activeId={activeId} query={search} />
+                        <ConversationList
+                            activeId={activeId}
+                            query={search}
+                            isCollapsed={isCollapsed}
+                        />
                     </div>
                 </aside>
             )}
 
-            {/* Main Content - Unchanged */}
+            {/* Main Content */}
             <main
                 className={cn(
                     "relative min-w-0 flex-1 flex-col overflow-y-auto scrollbar-thin",
@@ -88,6 +153,7 @@ export default function ConversationsLayout({
                           : "flex",
                 )}
             >
+                {/* Background Effects */}
                 <div
                     aria-hidden="true"
                     className="pointer-events-none absolute inset-0 overflow-hidden"
@@ -96,6 +162,7 @@ export default function ConversationsLayout({
                     <div className="orb orb-orange absolute -right-24 bottom-1/4 h-72 w-72 opacity-10" />
                 </div>
 
+                {/* Page Content */}
                 <div className="relative z-10 flex h-full w-full flex-col">
                     {children}
                 </div>

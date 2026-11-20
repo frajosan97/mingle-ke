@@ -1,4 +1,4 @@
-// resources/js/pages/settings/escort-onboarding.tsx
+// resources/js/pages/settings/escort/create.tsx
 import { Head, useForm } from "@inertiajs/react";
 import { useState } from "react";
 import {
@@ -104,6 +104,7 @@ export default function EscortOnboarding({ profile }: EscortOnboardingProps) {
                             : "Fill in your details below. Your profile will be reviewed and usually approved within 24 hours."
                     }
                     backHref="/settings"
+                    backHrefTitle="Back to Settings"
                 />
 
                 <form
@@ -111,28 +112,29 @@ export default function EscortOnboarding({ profile }: EscortOnboardingProps) {
                     className="space-y-8"
                     encType="multipart/form-data"
                 >
-                    <div className="border-b border-border">
+                    <div className="border-b border-border pb-4">
                         <nav
-                            className="-mb-px flex gap-1 overflow-x-auto scrollbar-hidden"
+                            className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6"
                             aria-label="Profile sections"
                         >
                             {TABS.map((tab) => {
                                 const active = activeTab === tab.id;
                                 const Icon = tab.icon;
+
                                 return (
                                     <button
                                         key={tab.id}
                                         type="button"
                                         onClick={() => setActiveTab(tab.id)}
                                         className={cn(
-                                            "inline-flex shrink-0 items-center gap-2 rounded-t-lg border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+                                            "flex items-center justify-center gap-2 rounded-lg border px-3 py-3 text-sm font-medium transition-colors",
                                             active
-                                                ? "border-brand-pink text-foreground"
-                                                : "border-transparent text-muted-foreground hover:text-foreground",
+                                                ? "border-brand-pink bg-brand-pink/10 text-foreground"
+                                                : "border-transparent bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground",
                                         )}
                                     >
-                                        <Icon className="h-4 w-4" />
-                                        {tab.label}
+                                        <Icon className="h-4 w-4 shrink-0" />
+                                        <span>{tab.label}</span>
                                     </button>
                                 );
                             })}

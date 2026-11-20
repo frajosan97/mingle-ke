@@ -1,11 +1,14 @@
+// resources/js/components/conversation/conversation-list.tsx
+
 import { Link, router, usePage } from "@inertiajs/react";
 import { useEcho } from "@laravel/echo-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
-import { BadgeCheck, Check, CheckCheck, Compass, SearchX } from "lucide-react";
+import { BadgeCheck, Check, CheckCheck, SearchX } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { Conversation, MessageStatus } from "@/types";
+import { EmptyState } from "../ui/empty-state";
 
 type ExtendedConversation = Omit<Conversation, "lastMessageId"> & {
     online?: boolean;
@@ -16,6 +19,7 @@ type ExtendedConversation = Omit<Conversation, "lastMessageId"> & {
 interface Props {
     activeId?: string;
     query?: string;
+    isCollapsed?: boolean;
 }
 
 interface MessageEvent {
@@ -82,7 +86,11 @@ function formatTime(value?: string | null): string {
     });
 }
 
-export default function ConversationList({ activeId, query = "" }: Props) {
+export default function ConversationList({
+    activeId,
+    query = "",
+    isCollapsed = false,
+}: Props) {
     const { props } = usePage();
 
     const pageProps = props as typeof props & {
@@ -440,22 +448,8 @@ export default function ConversationList({ activeId, query = "" }: Props) {
     // Empty state.
     if (conversations.length === 0) {
         return (
-            <div className="flex h-full min-h-[240px] flex-col items-center justify-center px-5 py-10 text-center">
-                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary-soft">
-                    <Compass className="h-6 w-6 text-brand-pink" />
-                </div>
-
-                <p className="mb-4 text-sm text-muted-foreground">
-                    No messages yet.
-                </p>
-
-                <Link
-                    href="/escorts"
-                    className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-xs font-semibold text-white shadow-glow-pink transition hover:shadow-glow-pink-strong hover-lift"
-                >
-                    <Compass className="h-4 w-4" />
-                    Discover profiles
-                </Link>
+            <div className="relative flex h-full flex-col items-center justify-center gap-6 overflow-hidden px-6 text-center">
+                <EmptyState description="No conversations yet!" />
             </div>
         );
     }
@@ -463,24 +457,20 @@ export default function ConversationList({ activeId, query = "" }: Props) {
     // Search empty state.
     if (filtered.length === 0) {
         return (
-            <div className="flex h-full min-h-[240px] flex-col items-center justify-center px-5 py-10 text-center">
-                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                    <SearchX className="h-6 w-6 text-muted-foreground" />
-                </div>
-
-                <p className="mb-1 text-sm font-semibold text-foreground">
-                    No matches for &ldquo;{query}&rdquo;
-                </p>
-
-                <p className="text-xs text-muted-foreground">
-                    Try a different name, message, or area.
-                </p>
+            <div className="relative flex h-full flex-col items-center justify-center gap-6 overflow-hidden px-6 text-center">
+                <EmptyState
+                    icon={<SearchX className="h-6 w-6 text-muted-foreground" />}
+                    title={
+                        query ? `No matches for "${query}"` : "No matches found"
+                    }
+                    description="Try a different name, message, or area."
+                />
             </div>
         );
     }
 
     return (
-        <ul className="space-y-0.5 py-1">
+        <ul className={cn("space-y-0.5 py-1", isCollapsed && "md:px-2")}>
             {filtered.map((conversation) => {
                 const active =
                     String(activeId ?? "") === String(conversation.id);
@@ -494,12 +484,17 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                         <Link
                             href={`/conversations/${conversation.id}`}
                             aria-current={active ? "page" : undefined}
+                            title={isCollapsed ? name : undefined}
                             className={cn(
                                 "group relative flex min-w-0 items-center gap-3 px-4 py-3 transition-colors duration-150",
                                 "hover:bg-accent/50",
                                 active && "bg-primary-soft",
                                 active &&
                                     "before:absolute before:inset-y-1 before:left-0 before:w-1 before:rounded-r-full before:bg-primary",
+
+                                // Collapsed rail: center avatar, hide details
+                                isCollapsed &&
+                                    "md:justify-center md:gap-0 md:px-2 md:py-2.5",
                             )}
                         >
                             {/* Avatar */}
@@ -523,10 +518,23 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                                         className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-brand-green"
                                     />
                                 )}
+
+                                {/* Unread dot for collapsed rail */}
+                                {isCollapsed && unread > 0 && (
+                                    <span
+                                        aria-label={`${unread} unread messages`}
+                                        className="absolute -right-0.5 -top-0.5 hidden h-3 w-3 rounded-full border-2 border-card bg-primary md:block"
+                                    />
+                                )}
                             </div>
 
-                            {/* Conversation Details */}
-                            <div className="min-w-0 flex-1">
+                            {/* Conversation Details — hidden in collapsed rail */}
+                            <div
+                                className={cn(
+                                    "min-w-0 flex-1",
+                                    isCollapsed && "md:hidden",
+                                )}
+                            >
                                 {/* Name and timestamp */}
                                 <div className="flex min-w-0 items-center justify-between gap-2">
                                     <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -589,6 +597,16 @@ export default function ConversationList({ activeId, query = "" }: Props) {
                                     )}
                                 </div>
                             </div>
+
+                            {/* Screen-reader label when collapsed */}
+                            {isCollapsed && (
+                                <span className="sr-only">
+                                    {name}
+                                    {unread > 0
+                                        ? `, ${unread} unread messages`
+                                        : ""}
+                                </span>
+                            )}
                         </Link>
                     </li>
                 );

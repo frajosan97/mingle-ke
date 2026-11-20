@@ -296,6 +296,10 @@
 
 * {
     scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+*:hover {
     scrollbar-color: var(--muted-foreground) transparent;
 }
 
@@ -309,8 +313,13 @@
 }
 
 *::-webkit-scrollbar-thumb {
-    background-color: var(--muted-foreground);
+    background-color: transparent;
     border-radius: 999px;
+    transition: background-color 200ms ease;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+    background-color: var(--muted-foreground);
 }
 
 *::-webkit-scrollbar-thumb:hover {

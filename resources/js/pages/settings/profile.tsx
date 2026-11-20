@@ -73,6 +73,7 @@ export default function Profile({
                     title="Profile"
                     description="Manage your personal information, photo and contact details."
                     backHref="/settings"
+                    backHrefTitle="Back to Settings"
                 />
 
                 <Form

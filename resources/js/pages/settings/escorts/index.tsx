@@ -236,6 +236,7 @@ export default function EscortsIndex({
                             : "Become an escort, grow your visibility and connect with clients."
                     }
                     backHref="/settings"
+                    backHrefTitle="Back to Settings"
                 />
 
                 {!isEscort ? (

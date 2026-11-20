@@ -1,7 +1,5 @@
-import { Head, Link, router, usePage } from "@inertiajs/react";
+import { Head, router, usePage } from "@inertiajs/react";
 import {
-    ArrowLeft,
-    ArrowRight,
     Banknote,
     CheckCircle2,
     Clock3,
@@ -16,15 +14,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
-
-import {
     formatCurrency,
     formatNumber,
     formatDate,
@@ -33,7 +22,6 @@ import {
 import type {
     Withdrawal,
     WithdrawalStatus,
-    PaginationLink,
     WithdrawalsWalletProps,
 } from "@/types/wallet";
 
@@ -42,8 +30,8 @@ import { StatsCards } from "@/components/stats-cards";
 import { PageHeader } from "@/components/page-header";
 import { NoticeBanner } from "@/components/ui/notice-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { EmptyState } from "@/components/ui/empty-state";
 import { SectionCard } from "@/components/ui/section-card";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 
 function titleCase(value: string) {
     return value.charAt(0).toUpperCase() + value.slice(1);
@@ -84,36 +72,6 @@ function getWithdrawalStatus(status: WithdrawalStatus) {
 
 function WithdrawalStatusBadge({ status }: { status: WithdrawalStatus }) {
     return <StatusBadge config={getWithdrawalStatus(status)} />;
-}
-
-function WithdrawalTableRow({ withdrawal }: { withdrawal: Withdrawal }) {
-    return (
-        <TableRow>
-            <TableCell className="whitespace-nowrap font-medium">
-                {withdrawal.reference}
-            </TableCell>
-
-            <TableCell className="whitespace-nowrap tabular-nums">
-                {formatNumber(withdrawal.points)}
-            </TableCell>
-
-            <TableCell className="whitespace-nowrap font-semibold tabular-nums">
-                {formatCurrency(withdrawal.amount_kes)}
-            </TableCell>
-
-            <TableCell className="whitespace-nowrap">
-                {withdrawal.phone || "—"}
-            </TableCell>
-
-            <TableCell className="whitespace-nowrap">
-                <WithdrawalStatusBadge status={withdrawal.status} />
-            </TableCell>
-
-            <TableCell className="whitespace-nowrap text-muted-foreground">
-                {formatDate(withdrawal.created_at)}
-            </TableCell>
-        </TableRow>
-    );
 }
 
 function WithdrawalMobileCard({ withdrawal }: { withdrawal: Withdrawal }) {
@@ -168,72 +126,44 @@ function WithdrawalMobileCard({ withdrawal }: { withdrawal: Withdrawal }) {
     );
 }
 
-function WithdrawalPagination({ links }: { links: PaginationLink[] }) {
-    if (!links.length || links.length <= 3) {
-        return null;
-    }
-
-    const previous = links[0];
-    const next = links[links.length - 1];
-    const pages = links.slice(1, -1);
-
-    return (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-4">
-            <Link
-                href={previous.url || "#"}
-                preserveScroll
-                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                    previous.url
-                        ? "hover:bg-muted"
-                        : "pointer-events-none opacity-40"
-                }`}
-                aria-disabled={!previous.url}
-            >
-                <ArrowLeft className="h-4 w-4" />
-                Previous
-            </Link>
-
-            <div className="flex flex-wrap items-center gap-1">
-                {pages.map((link, index) => {
-                    const label = link.label.replace(/<[^>]*>/g, "").trim();
-
-                    return (
-                        <Link
-                            key={`${label}-${index}`}
-                            href={link.url || "#"}
-                            preserveScroll
-                            aria-current={link.active ? "page" : undefined}
-                            aria-disabled={!link.url}
-                            className={`flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-sm transition ${
-                                link.active
-                                    ? "bg-primary text-primary-foreground"
-                                    : link.url
-                                      ? "hover:bg-muted"
-                                      : "pointer-events-none opacity-40"
-                            }`}
-                        >
-                            {label}
-                        </Link>
-                    );
-                })}
-            </div>
-
-            <Link
-                href={next.url || "#"}
-                preserveScroll
-                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                    next.url
-                        ? "hover:bg-muted"
-                        : "pointer-events-none opacity-40"
-                }`}
-                aria-disabled={!next.url}
-            >
-                Next
-                <ArrowRight className="h-4 w-4" />
-            </Link>
-        </div>
-    );
-}
+const withdrawalColumns: DataTableColumn<Withdrawal>[] = [
+    {
+        key: "reference",
+        header: "Reference",
+        className: "whitespace-nowrap font-medium",
+        cell: (w) => w.reference,
+    },
+    {
+        key: "points",
+        header: "Points",
+        className: "whitespace-nowrap tabular-nums",
+        cell: (w) => formatNumber(w.points),
+    },
+    {
+        key: "amount",
+        header: "Amount",
+        className: "whitespace-nowrap font-semibold tabular-nums",
+        cell: (w) => formatCurrency(w.amount_kes),
+    },
+    {
+        key: "phone",
+        header: "M-PESA number",
+        className: "whitespace-nowrap",
+        cell: (w) => w.phone || "—",
+    },
+    {
+        key: "status",
+        header: "Status",
+        className: "whitespace-nowrap",
+        cell: (w) => <WithdrawalStatusBadge status={w.status} />,
+    },
+    {
+        key: "date",
+        header: "Date",
+        className: "whitespace-nowrap text-muted-foreground",
+        cell: (w) => formatDate(w.created_at),
+    },
+];
 
 export default function WithdrawalsWallet() {
     const {
@@ -249,9 +179,6 @@ export default function WithdrawalsWallet() {
     } = usePage<WithdrawalsWalletProps>().props;
 
     const [submitting, setSubmitting] = useState(false);
-
-    const records = withdrawals?.data ?? [];
-    const paginationLinks = withdrawals?.links ?? [];
 
     const hasPhone = phoneConfigured ?? Boolean(phone?.trim());
     const canMeetMinimum = pointsBalance >= minimumPoints;
@@ -432,52 +359,20 @@ export default function WithdrawalsWallet() {
                     description="Track your previous withdrawal requests."
                     meta={`${formatNumber(withdrawals?.total ?? 0)} transactions`}
                 >
-                    {records.length > 0 ? (
-                        <>
-                            {/* Desktop table */}
-                            <div className="hidden overflow-x-auto md:block">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Reference</TableHead>
-                                            <TableHead>Points</TableHead>
-                                            <TableHead>Amount</TableHead>
-                                            <TableHead>M-PESA number</TableHead>
-                                            <TableHead>Status</TableHead>
-                                            <TableHead>Date</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-
-                                    <TableBody>
-                                        {records.map((withdrawal) => (
-                                            <WithdrawalTableRow
-                                                key={withdrawal.id}
-                                                withdrawal={withdrawal}
-                                            />
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
-
-                            {/* Mobile cards */}
-                            <div className="space-y-3 p-4 md:hidden">
-                                {records.map((withdrawal) => (
-                                    <WithdrawalMobileCard
-                                        key={withdrawal.id}
-                                        withdrawal={withdrawal}
-                                    />
-                                ))}
-                            </div>
-
-                            <WithdrawalPagination links={paginationLinks} />
-                        </>
-                    ) : (
-                        <EmptyState
-                            icon={ReceiptText}
-                            title="No withdrawals yet"
-                            description="Your withdrawal requests will appear here once you make your first withdrawal."
-                        />
-                    )}
+                    <DataTable
+                        data={withdrawals}
+                        columns={withdrawalColumns}
+                        getRowKey={(w) => w.id}
+                        renderMobileCard={(w) => (
+                            <WithdrawalMobileCard withdrawal={w} />
+                        )}
+                        emptyState={{
+                            icon: <ReceiptText />,
+                            title: "No withdrawals yet",
+                            description:
+                                "Your withdrawal requests will appear here once you make your first withdrawal.",
+                        }}
+                    />
                 </SectionCard>
             </div>
         </>

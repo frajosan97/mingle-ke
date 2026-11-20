@@ -212,11 +212,7 @@ class WalletController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        /*
-         * M-PESA coin purchase history.
-         */
         $payments = $user->mpesaTransactions()
-            ->where('type', MpesaTransaction::TYPE_COINS_PURCHASE)
             ->latest()
             ->paginate(20)
             ->withQueryString()

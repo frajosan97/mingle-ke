@@ -1,16 +1,10 @@
-import { Head, Link, usePage } from "@inertiajs/react";
-import {
-    ArrowDownLeft,
-    ArrowLeft,
-    ArrowRight,
-    ArrowUpRight,
-    Wallet,
-} from "lucide-react";
+import { Head, usePage } from "@inertiajs/react";
+import { ArrowDownLeft, ArrowUpRight, Wallet } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/ui/empty-state";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 
 import { formatDate, formatNumber } from "@/lib/wallet/formatters";
 
@@ -78,13 +72,8 @@ type TransactionsPageProps = {
 |--------------------------------------------------------------------------
 */
 
-function decodePaginationLabel(label: string): string {
-    return label.replace(/<[^>]*>/g, "").trim();
-}
-
 function getTransactionAmount(transaction: Transaction): number {
     const amount = transaction.amount ?? transaction.amount_kes ?? 0;
-
     const parsed = Number(amount);
 
     return Number.isFinite(parsed) ? parsed : 0;
@@ -132,7 +121,6 @@ function getTransactionTitle(transaction: Transaction): string {
     }
 
     const meta = transaction.meta ?? {};
-
     const metaLabel = meta.label ?? meta.plan_label ?? meta.description;
 
     if (typeof metaLabel === "string" && metaLabel.trim()) {
@@ -274,43 +262,6 @@ function TransactionDetails({ transaction }: { transaction: Transaction }) {
 
 /*
 |--------------------------------------------------------------------------
-| Desktop transaction row
-|--------------------------------------------------------------------------
-*/
-
-function TransactionRow({ transaction }: { transaction: Transaction }) {
-    return (
-        <tr className="border-b border-border transition-colors last:border-0 hover:bg-muted/40">
-            <td className="px-4 py-4">
-                <div className="flex min-w-0 items-center gap-3">
-                    <TransactionIcon transaction={transaction} />
-
-                    <div className="min-w-0">
-                        <p className="truncate font-semibold text-foreground">
-                            {getTransactionTitle(transaction)}
-                        </p>
-
-                        <p className="mt-1 whitespace-nowrap text-xs text-muted-foreground">
-                            #{transaction.id} ·{" "}
-                            {formatDate(transaction.created_at)}
-                        </p>
-                    </div>
-                </div>
-            </td>
-
-            <td className="px-4 py-4">
-                <TransactionDetails transaction={transaction} />
-            </td>
-
-            <td className="px-4 py-4">
-                <TransactionStatusBadge status={transaction.status} />
-            </td>
-        </tr>
-    );
-}
-
-/*
-|--------------------------------------------------------------------------
 | Mobile transaction card
 |--------------------------------------------------------------------------
 */
@@ -395,76 +346,43 @@ function TransactionMobileCard({ transaction }: { transaction: Transaction }) {
 
 /*
 |--------------------------------------------------------------------------
-| Pagination
+| Columns
 |--------------------------------------------------------------------------
 */
 
-function TransactionPagination({
-    links,
-    from,
-    to,
-    total,
-}: {
-    links: PaginationLink[];
-    from: number | null;
-    to: number | null;
-    total: number;
-}) {
-    if (!links.length) return null;
+const transactionColumns: DataTableColumn<Transaction>[] = [
+    {
+        key: "transaction",
+        header: "Transaction",
+        cell: (transaction) => (
+            <div className="flex min-w-0 items-center gap-3">
+                <TransactionIcon transaction={transaction} />
 
-    return (
-        <div className="flex flex-col gap-4 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <p className="text-sm text-muted-foreground">
-                Showing{" "}
-                <span className="font-medium text-foreground">{from ?? 0}</span>{" "}
-                to{" "}
-                <span className="font-medium text-foreground">{to ?? 0}</span>{" "}
-                of{" "}
-                <span className="font-medium text-foreground">
-                    {formatNumber(total)}
-                </span>{" "}
-                transactions
-            </p>
+                <div className="min-w-0">
+                    <p className="truncate font-semibold text-foreground">
+                        {getTransactionTitle(transaction)}
+                    </p>
 
-            <nav
-                aria-label="Transaction pages"
-                className="flex flex-wrap items-center gap-1"
-            >
-                {links.map((link, index) => {
-                    const isPrevious = index === 0;
-                    const isNext = index === links.length - 1;
-
-                    return (
-                        <Link
-                            key={`${index}-${link.label}`}
-                            href={link.url ?? "#"}
-                            preserveScroll
-                            aria-disabled={!link.url}
-                            aria-current={link.active ? "page" : undefined}
-                            className={[
-                                "inline-flex size-9 items-center justify-center rounded-lg text-sm font-medium transition-colors",
-                                link.active
-                                    ? "bg-primary text-primary-foreground"
-                                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                                !link.url
-                                    ? "pointer-events-none opacity-40"
-                                    : "",
-                            ].join(" ")}
-                        >
-                            {isPrevious ? (
-                                <ArrowLeft className="size-4" />
-                            ) : isNext ? (
-                                <ArrowRight className="size-4" />
-                            ) : (
-                                decodePaginationLabel(link.label)
-                            )}
-                        </Link>
-                    );
-                })}
-            </nav>
-        </div>
-    );
-}
+                    <p className="mt-1 whitespace-nowrap text-xs text-muted-foreground">
+                        #{transaction.id} · {formatDate(transaction.created_at)}
+                    </p>
+                </div>
+            </div>
+        ),
+    },
+    {
+        key: "details",
+        header: "Details",
+        cell: (transaction) => <TransactionDetails transaction={transaction} />,
+    },
+    {
+        key: "status",
+        header: "Status",
+        cell: (transaction) => (
+            <TransactionStatusBadge status={transaction.status} />
+        ),
+    },
+];
 
 /*
 |--------------------------------------------------------------------------
@@ -475,7 +393,6 @@ function TransactionPagination({
 export default function Transactions() {
     const { transactions } = usePage<TransactionsPageProps>().props;
 
-    const records = transactions?.data ?? [];
     const total = transactions?.total ?? 0;
 
     return (
@@ -497,62 +414,20 @@ export default function Transactions() {
                         total === 1 ? "transaction" : "transactions"
                     } recorded`}
                 >
-                    {records.length > 0 ? (
-                        <>
-                            {/* Desktop */}
-                            <div className="hidden overflow-x-auto md:block">
-                                <table className="w-full text-left">
-                                    <thead>
-                                        <tr className="border-b border-border">
-                                            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                                Transaction
-                                            </th>
-
-                                            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                                Details
-                                            </th>
-
-                                            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                                Status
-                                            </th>
-                                        </tr>
-                                    </thead>
-
-                                    <tbody>
-                                        {records.map((transaction) => (
-                                            <TransactionRow
-                                                key={transaction.id}
-                                                transaction={transaction}
-                                            />
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            {/* Mobile */}
-                            <div className="divide-y divide-border md:hidden">
-                                {records.map((transaction) => (
-                                    <TransactionMobileCard
-                                        key={transaction.id}
-                                        transaction={transaction}
-                                    />
-                                ))}
-                            </div>
-
-                            <TransactionPagination
-                                links={transactions.links ?? []}
-                                from={transactions.from}
-                                to={transactions.to}
-                                total={total}
-                            />
-                        </>
-                    ) : (
-                        <EmptyState
-                            icon={Wallet}
-                            title="No transactions found"
-                            description="Your purchases, subscriptions, withdrawals, and other transactions will appear here."
-                        />
-                    )}
+                    <DataTable
+                        data={transactions}
+                        columns={transactionColumns}
+                        getRowKey={(transaction) => transaction.id}
+                        renderMobileCard={(transaction) => (
+                            <TransactionMobileCard transaction={transaction} />
+                        )}
+                        emptyState={{
+                            icon: <Wallet />,
+                            title: "No transactions found",
+                            description:
+                                "Your purchases, subscriptions, withdrawals, and other transactions will appear here.",
+                        }}
+                    />
                 </SectionCard>
             </div>
         </>

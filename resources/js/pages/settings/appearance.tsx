@@ -14,10 +14,9 @@ export default function Appearance() {
                     title="Appearance settings"
                     description="Customize the look and feel of your account."
                     backHref="/settings"
+                    backHrefTitle="Back to Settings"
                 />
-            </div>
 
-            <div className="rounded-2xl border-0 bg-card/40">
                 <AppearanceTabs />
             </div>
         </>
