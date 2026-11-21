@@ -16,12 +16,46 @@ trait ProfileValidationRules
     {
         return [
             'name' => $this->nameRules(),
+
             'email' => $this->emailRules($userId),
-            'phone' => ['nullable', 'string', 'max:20'],
-            'age' => ['nullable', 'integer', 'min:18', 'max:99'],
-            'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
-            'area' => ['nullable', 'string', 'max:255'],
-            'bio' => ['nullable', 'string', 'max:500'],
+
+            'phone' => [
+                'nullable',
+                'string',
+                'max:20',
+            ],
+
+            'age' => [
+                'nullable',
+                'integer',
+                'min:18',
+                'max:99',
+            ],
+
+            'gender' => [
+                'nullable',
+                Rule::in(['male', 'female', 'other']),
+            ],
+
+            'area' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'bio' => [
+                'nullable',
+                'string',
+                'max:500',
+            ],
+
+            // Profile avatar upload.
+            'avatar' => [
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:2048',
+            ],
         ];
     }
 
@@ -32,7 +66,11 @@ trait ProfileValidationRules
      */
     protected function nameRules(): array
     {
-        return ['required', 'string', 'max:255'];
+        return [
+            'required',
+            'string',
+            'max:255',
+        ];
     }
 
     /**
@@ -47,6 +85,7 @@ trait ProfileValidationRules
             'string',
             'email',
             'max:255',
+
             $userId === null
             ? Rule::unique(User::class)
             : Rule::unique(User::class)->ignore($userId),

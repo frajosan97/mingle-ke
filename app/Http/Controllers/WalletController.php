@@ -19,9 +19,7 @@ use Inertia\Response;
 class WalletController extends Controller
 {
     private const CUSTOM_RATE = 1.0;
-
     private const MINIMUM_COINS = 20;
-
     private const MAXIMUM_COINS = 1_000_000;
 
     public function __construct(
@@ -76,26 +74,95 @@ class WalletController extends Controller
 
         return Inertia::render('wallets/coins', [
             'packages' => $packages,
-
             'customRate' => self::CUSTOM_RATE,
             'minimumCoins' => self::MINIMUM_COINS,
             'maximumCoins' => self::MAXIMUM_COINS,
-            'billRef' => $this->coinsPurchaseService->billRefForUser($user),
+            'billRef' => null,
             'paybill' => config('services.mpesa.shortcode'),
-
             'phoneConfigured' => filled($user->phone),
-
             'mpesaAvailable' => $this->mpesa->isStkConfigured(),
-
             'phoneSetupUrl' => route('profile.edit'),
-
             'checkout_request_id' => session('checkout_request_id'),
         ]);
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Purchase Coins
+    | Generate C2B Bill Reference
+    |--------------------------------------------------------------------------
+    */
+
+    public function generateBillRef(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'package_id' => [
+                'nullable',
+                'integer',
+                'min:1',
+                'required_without:coins',
+                'prohibits:coins',
+            ],
+
+            'coins' => [
+                'nullable',
+                'integer',
+                'min:' . self::MINIMUM_COINS,
+                'max:' . self::MAXIMUM_COINS,
+                'required_without:package_id',
+                'prohibits:package_id',
+            ],
+        ]);
+
+        if (!filled($user->phone)) {
+            throw ValidationException::withMessages([
+                'phone' => 'Please configure your phone number before purchasing coins.',
+            ]);
+        }
+
+        if (isset($validated['package_id'])) {
+            $package = CoinPackage::query()
+                ->active()
+                ->find($validated['package_id']);
+
+            if (!$package) {
+                throw ValidationException::withMessages([
+                    'package_id' => 'The selected package is unavailable.',
+                ]);
+            }
+
+            $coins = $package->totalCoins();
+            $amount = (int) round((float) $package->price);
+
+            $billRef = $this->coinsPurchaseService
+                ->billRefForPackage($user, $package);
+
+        } else {
+            $coins = (int) $validated['coins'];
+            $amount = $this->priceForCoins($coins);
+
+            $billRef = $this->coinsPurchaseService
+                ->billRefForCustomPurchase(
+                    $user,
+                    $coins,
+                    $amount
+                );
+        }
+
+        return response()->json([
+            'success' => true,
+            'bill_ref' => $billRef,
+            'amount' => $amount,
+            'coins' => $coins,
+            'paybill' => config('services.mpesa.shortcode'),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Purchase Coins Through STK
     |--------------------------------------------------------------------------
     */
 
@@ -132,9 +199,6 @@ class WalletController extends Controller
 
         $packageId = $validated['package_id'] ?? null;
 
-        /*
-         * Predefined package purchase.
-         */
         if ($packageId !== null) {
             $package = CoinPackage::query()
                 ->active()
@@ -147,12 +211,9 @@ class WalletController extends Controller
             }
 
             $coins = $package->totalCoins();
-
-            $amountKes = (int) $package->price;
-
+            $amountKes = (int) round((float) $package->price);
             $packageId = $package->id;
 
-            // Preserve package details at purchase time.
             $packageSnapshot = [
                 'id' => $package->id,
                 'name' => $package->name,
@@ -163,15 +224,10 @@ class WalletController extends Controller
                 'currency' => 'KES',
             ];
         } else {
-            /*
-             * Custom purchases do not receive package bonuses.
-             */
             $coins = (int) $validated['coins'];
-
             $amountKes = $this->priceForCoins($coins);
 
             $packageId = null;
-
             $packageSnapshot = null;
         }
 
@@ -236,9 +292,6 @@ class WalletController extends Controller
                 'failure_reason' => $transaction->result_desc,
             ]);
 
-        /*
-         * Coin ledger history.
-         */
         $coinLedger = $user->coinTransactions()
             ->latest()
             ->take(30)
@@ -246,7 +299,7 @@ class WalletController extends Controller
             ->map(fn(CoinTransaction $transaction) => [
                 'id' => $transaction->id,
                 'type' => $transaction->type,
-                'coins' => (int) $transaction->coins,
+                'coins' => (int) $transaction->amount,
                 'reference' => $transaction->reference,
                 'description' => $transaction->description,
                 'meta' => $transaction->meta,
@@ -254,15 +307,11 @@ class WalletController extends Controller
             ])
             ->values();
 
-        /*
-         * Purchase summary.
-         */
         $completedPayments = $user->mpesaTransactions()
             ->where('type', MpesaTransaction::TYPE_COINS_PURCHASE)
             ->where('status', MpesaTransaction::STATUS_COMPLETED);
 
         $totalPurchased = (clone $completedPayments)->sum('coins');
-
         $totalSpentKes = (clone $completedPayments)->sum('amount');
 
         $totalCoinsSpent = $user->coinTransactions()
@@ -271,7 +320,6 @@ class WalletController extends Controller
 
         return Inertia::render('wallets/transactions', [
             'transactions' => $payments,
-
             'coinLedger' => $coinLedger,
 
             'summary' => [
@@ -305,8 +353,8 @@ class WalletController extends Controller
             ->findByCheckoutRequestId($checkoutRequestId);
 
         if (
-            !$record ||
-            (int) $record->user_id !== (int) $request->user()->id
+            !$record
+            || (int) $record->user_id !== (int) $request->user()->id
         ) {
             return response()->json([
                 'message' => 'Transaction not found.',
@@ -444,7 +492,6 @@ class WalletController extends Controller
             ),
 
             'pointsBalance' => (int) $user->points_balance,
-
             'payouts' => $payouts,
         ]);
     }

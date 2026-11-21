@@ -1,12 +1,34 @@
 
 import type { LucideIcon } from "lucide-react";
-import type { SharedProps } from "@/types/coin";
 
 /*
 |--------------------------------------------------------------------------
 | Base / Shared
 |--------------------------------------------------------------------------
 */
+
+export interface AuthUser {
+    id: number;
+    name: string;
+    email: string;
+    avatar_url?: string | null;
+    coins: number;
+    tier: string;
+    is_verified: boolean;
+    invite_code?: string | null;
+}
+
+export interface SharedProps {
+    auth: { user: AuthUser | null };
+    flash?: {
+        success?: string;
+        error?: string;
+    };
+    checkout_request_id?: string | null;
+    billRef?: string | null;
+    paybill?: string | null;
+    [key: string]: unknown;
+}
 
 export interface PaginationLink {
     url: string | null;
@@ -27,9 +49,17 @@ export interface PaginatedData<T> {
 
 /*
 |--------------------------------------------------------------------------
-| Coins / Purchases (wallet)
+| Coins / Packages
 |--------------------------------------------------------------------------
 */
+
+export interface CoinPackage {
+    id: number;
+    coins: number | "custom";
+    price: number | null;
+    bonus?: string;
+    popular?: boolean;
+}
 
 export type PurchaseStatus = "idle" | "pending" | "done" | "failed";
 
@@ -50,6 +80,13 @@ export type CoinsWalletProps = SharedProps & CoinsWalletPageProps;
 |--------------------------------------------------------------------------
 */
 
+export type CoinTxType =
+    | "purchase"
+    | "bonus"
+    | "invite"
+    | "spend"
+    | "refund";
+
 export type TransactionStatus =
     | "pending"
     | "processing"
@@ -58,28 +95,32 @@ export type TransactionStatus =
     | "cancelled"
     | "unknown";
 
+export type CoinTxStatus = Exclude<TransactionStatus, "unknown">;
+
 export interface CoinTransaction {
     id: number;
-    type: string | null;
+    type: CoinTxType | string;
     status: TransactionStatus | string;
     coins: number;
     amount_kes: number;
     method: string | null;
-    source: string | null;
+    source?: string | null;
     mpesa_receipt: string | null;
     package_id: number | null;
     phone: string | null;
-    created_at: string;
+    created_at: string | null;
     failure_reason: string | null;
 }
 
 export type PaginatedTransactions = PaginatedData<CoinTransaction>;
 
-export interface TransactionsSummary {
+export interface CoinHistorySummary {
     coins_balance: number;
     total_purchased: number;
     total_spent_kes: number;
 }
+
+export type TransactionsSummary = CoinHistorySummary;
 
 export interface TransactionsPageData {
     transactions: PaginatedTransactions;
@@ -165,7 +206,70 @@ export type PointsWalletProps = SharedProps & PointsWalletPageProps;
 
 /*
 |--------------------------------------------------------------------------
-| UI helper types
+| Subscriptions
+|--------------------------------------------------------------------------
+*/
+
+export type PricingPlan = {
+    id: number;
+    key: string;
+    label: string;
+    days: number | null;
+    unitPrice: number;
+    totalPrice: number | null;
+    currency: string;
+    badge: string | null;
+    discountPercent: number;
+    savings: number | null;
+    isCustom: boolean;
+};
+
+export type Subscription = {
+    isActive: boolean;
+    isExpired?: boolean;
+    needsRenewal?: boolean;
+    startedAt?: string | null;
+    expiresAt?: string | null;
+    plan?: string | null;
+    autoRenew?: boolean;
+};
+
+export type SubscriptionToast = {
+    type?: "success" | "error" | "warning" | "info";
+    message?: string;
+};
+
+export type SubscriptionFlash = {
+    toast?: SubscriptionToast;
+};
+
+export type SubscriptionPageProps = {
+    plans: PricingPlan[];
+    subscription: Subscription;
+    phone: string;
+    paybill: string | null;
+};
+
+export type CustomMode = "days" | "amount";
+
+/*
+|--------------------------------------------------------------------------
+| Payment Methods
+|--------------------------------------------------------------------------
+*/
+
+export type PaymentMethod = "stk" | "manual";
+
+export interface ManualPaymentIntent {
+    bill_ref: string;
+    amount: number;
+    currency: string;
+    expires_at: string;
+}
+
+/*
+|--------------------------------------------------------------------------
+| UI Helper Types
 |--------------------------------------------------------------------------
 */
 

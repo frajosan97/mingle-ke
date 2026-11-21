@@ -5,21 +5,29 @@ namespace App\Services;
 use App\Models\MpesaTransaction;
 use App\Models\PricingPlan;
 use App\Models\User;
-use Carbon\Carbon;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 class EscortPaymentService
 {
+    private const DIRECT_INTENT_TTL_HOURS = 24;
+
     public function __construct(
         protected MpesaService $payments,
     ) {
     }
 
-    /**
-     * Start an escort subscription payment.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | STK PURCHASE
+    |--------------------------------------------------------------------------
+    */
+
     public function startPurchase(
         User $user,
         int $planId,
@@ -52,8 +60,7 @@ class EscortPaymentService
         $plan = PricingPlan::query()
             ->ofType(PricingPlan::TYPE_ESCORT_LISTING)
             ->active()
-            ->whereKey($planId)
-            ->first();
+            ->find($planId);
 
         if (!$plan) {
             return [
@@ -69,7 +76,6 @@ class EscortPaymentService
             ];
         }
 
-        // Calculate the amount on the server, never from frontend input.
         $calculatedAmount = $plan->priceFor($days);
         $amountKes = (int) round($calculatedAmount);
 
@@ -80,11 +86,10 @@ class EscortPaymentService
             ];
         }
 
-        $tx = DB::transaction(function () use ($user, $plan, $days, $amountKes, $phone, $calculatedAmount, ) {
+        $tx = DB::transaction(function () use ($user, $plan, $days, $amountKes, $phone, $calculatedAmount) {
             $lockedUser = User::query()
-                ->whereKey($user->id)
                 ->lockForUpdate()
-                ->firstOrFail();
+                ->findOrFail($user->id);
 
             $hasUnresolvedPayment = MpesaTransaction::query()
                 ->where('user_id', $lockedUser->id)
@@ -100,10 +105,9 @@ class EscortPaymentService
                 return null;
             }
 
-            $reference = $this->payments->generateReference(
-                'ESCORT',
-                $lockedUser,
-            );
+            $reference = 'E-' . $lockedUser->id
+                . '-' . $plan->id
+                . '-' . Str::upper(Str::random(7));
 
             return MpesaTransaction::create([
                 'user_id' => $lockedUser->id,
@@ -111,12 +115,13 @@ class EscortPaymentService
                 'direction' => MpesaTransaction::DIRECTION_INBOUND,
                 'status' => MpesaTransaction::STATUS_PENDING,
                 'amount' => $amountKes,
-                'currency' => $plan->currency ?: 'KES',
+                'currency' => 'KES',
                 'phone' => $phone,
-
-                // Use this exact value when submitting STK Push.
+                'reference' => $reference,
                 'bill_ref_number' => $reference,
-
+                'pricing_plan_id' => $plan->id,
+                'days' => $days,
+                'unit_price' => $plan->unit_price,
                 'meta' => [
                     'created_for' => 'escort_subscription',
                     'payment_method' => 'stk',
@@ -136,7 +141,7 @@ class EscortPaymentService
         if (!$tx) {
             return [
                 'success' => false,
-                'message' => 'You already have an unresolved escort subscription payment. Please wait for it to be confirmed before starting another payment.',
+                'message' => 'You already have an unresolved escort subscription payment. Please wait for it to be confirmed.',
             ];
         }
 
@@ -159,7 +164,7 @@ class EscortPaymentService
                         'stk_error' => $result['message'],
                         'stk_uncertain' => $result['uncertain'],
                         'stk_error_at' => now()->toISOString(),
-                        'raw' => $result['raw'],
+                        'raw' => $result['raw'] ?? [],
                     ],
                 ]);
 
@@ -167,19 +172,17 @@ class EscortPaymentService
                     'success' => false,
                     'uncertain' => $result['uncertain'],
                     'transaction' => $tx->fresh(),
-                    'message' => $result['uncertain']
-                        ? 'We could not confirm whether M-PESA received your request. Please wait while we verify it. Do not pay again yet.'
-                        : $result['message'],
+                    'message' => $result['message'],
                 ];
             }
 
             $tx->update([
                 'status' => MpesaTransaction::STATUS_PROCESSING,
                 'checkout_request_id' => $result['checkout_request_id'],
-                'merchant_request_id' => $result['merchant_request_id'],
+                'merchant_request_id' => $result['merchant_request_id'] ?? null,
                 'gateway_response' => [
                     'stk_submitted_at' => now()->toISOString(),
-                    'raw' => $result['raw'],
+                    'raw' => $result['raw'] ?? [],
                 ],
             ]);
 
@@ -196,8 +199,6 @@ class EscortPaymentService
                 'error' => $e->getMessage(),
             ]);
 
-            // The request may have reached M-PESA. Do not mark it failed
-            // or initiate another payment automatically.
             $tx->update([
                 'status' => MpesaTransaction::STATUS_UNKNOWN,
                 'gateway_response' => [
@@ -216,14 +217,21 @@ class EscortPaymentService
         }
     }
 
-    /**
-     * Confirm payment and activate or extend the subscription.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | STK CONFIRMATION
+    |--------------------------------------------------------------------------
+    */
+
     public function confirmPayment(
         MpesaTransaction $tx,
         string $mpesaReceipt,
+        bool $allowFailedRecovery = true,
+        ?int $paidAmount = null,
     ): void {
-        if (blank($mpesaReceipt)) {
+        $mpesaReceipt = strtoupper(trim($mpesaReceipt));
+
+        if ($mpesaReceipt === '') {
             Log::warning('Escort payment confirmation received without receipt.', [
                 'transaction_id' => $tx->id,
             ]);
@@ -231,23 +239,16 @@ class EscortPaymentService
             return;
         }
 
-        DB::transaction(function () use ($tx, $mpesaReceipt) {
+        DB::transaction(function () use ($tx, $mpesaReceipt, $allowFailedRecovery, $paidAmount) {
             $lockedTx = MpesaTransaction::query()
                 ->lockForUpdate()
                 ->find($tx->id);
 
-            if (!$lockedTx) {
-                return;
-            }
-
             if (
-                $lockedTx->type !== MpesaTransaction::TYPE_ESCORT_LISTING_FEES
+                !$lockedTx
+                || $lockedTx->type !== MpesaTransaction::TYPE_ESCORT_LISTING_FEES
                 || $lockedTx->direction !== MpesaTransaction::DIRECTION_INBOUND
             ) {
-                Log::warning('Invalid transaction type for escort confirmation.', [
-                    'transaction_id' => $lockedTx->id,
-                ]);
-
                 return;
             }
 
@@ -256,9 +257,36 @@ class EscortPaymentService
             }
 
             if ($lockedTx->isTerminal()) {
-                Log::warning('Successful callback received for terminal escort payment.', [
+                if (
+                    !$allowFailedRecovery
+                    || $lockedTx->status !== MpesaTransaction::STATUS_FAILED
+                ) {
+                    return;
+                }
+            }
+
+            if (
+                $paidAmount !== null
+                && $paidAmount !== (int) round((float) $lockedTx->amount)
+            ) {
+                Log::error('Escort STK callback amount mismatch.', [
                     'transaction_id' => $lockedTx->id,
-                    'status' => $lockedTx->status,
+                    'expected' => $lockedTx->amount,
+                    'received' => $paidAmount,
+                ]);
+
+                return;
+            }
+
+            if (
+                $this->receiptBelongsToAnotherTransaction(
+                    $mpesaReceipt,
+                    $lockedTx->id
+                )
+            ) {
+                Log::warning('Escort receipt already belongs to another transaction.', [
+                    'receipt' => $mpesaReceipt,
+                    'transaction_id' => $lockedTx->id,
                 ]);
 
                 return;
@@ -266,9 +294,9 @@ class EscortPaymentService
 
             $meta = $lockedTx->meta ?? [];
 
-            $days = (int) ($meta['days'] ?? 0);
-            $planId = (int) ($meta['plan_id'] ?? 0);
-            $expectedAmount = (int) ($meta['amount'] ?? 0);
+            $days = (int) ($meta['days'] ?? $lockedTx->days ?? 0);
+            $planId = (int) ($meta['plan_id'] ?? $lockedTx->pricing_plan_id ?? 0);
+            $expectedAmount = (int) ($meta['amount'] ?? round((float) $lockedTx->amount));
             $planLabel = trim((string) ($meta['plan_label'] ?? ''));
 
             if (
@@ -276,13 +304,26 @@ class EscortPaymentService
                 || $days > 3650
                 || $planId <= 0
                 || $expectedAmount <= 0
-                || $planLabel === ''
-                || (int) $lockedTx->amount !== $expectedAmount
+                || (int) round((float) $lockedTx->amount) !== $expectedAmount
             ) {
                 Log::error('Invalid escort subscription transaction metadata.', [
                     'transaction_id' => $lockedTx->id,
                     'meta' => $meta,
-                    'transaction_amount' => $lockedTx->amount,
+                ]);
+
+                return;
+            }
+
+            if ($planLabel === '') {
+                $planLabel = (string) PricingPlan::query()
+                    ->whereKey($planId)
+                    ->value('label');
+            }
+
+            if ($planLabel === '') {
+                Log::error('Escort payment has no valid plan label.', [
+                    'transaction_id' => $lockedTx->id,
+                    'plan_id' => $planId,
                 ]);
 
                 return;
@@ -301,36 +342,7 @@ class EscortPaymentService
                 return;
             }
 
-            $now = now();
-
-            $existingExpiry = $user->subscription_expires_at
-                ? Carbon::parse($user->subscription_expires_at)
-                : null;
-
-            $existingStart = $user->subscription_started_at
-                ? Carbon::parse($user->subscription_started_at)
-                : null;
-
-            $hasActiveSubscription = $existingStart
-                && $existingExpiry
-                && $existingStart->lte($now)
-                && $existingExpiry->gt($now);
-
-            $subscriptionStart = $hasActiveSubscription
-                ? $existingStart
-                : $now->copy();
-
-            $expiryBase = $existingExpiry && $existingExpiry->gt($now)
-                ? $existingExpiry->copy()
-                : $now->copy();
-
-            $newExpiry = $expiryBase->addDays($days);
-
-            $user->forceFill([
-                'subscription_plan' => $planLabel,
-                'subscription_started_at' => $subscriptionStart,
-                'subscription_expires_at' => $newExpiry,
-            ])->save();
+            $expiry = $this->activateSubscription($user, $days, $planLabel);
 
             $gatewayResponse = $lockedTx->gateway_response ?? [];
 
@@ -341,22 +353,28 @@ class EscortPaymentService
             $lockedTx->update([
                 'status' => MpesaTransaction::STATUS_COMPLETED,
                 'mpesa_receipt' => $mpesaReceipt,
+                'trans_id' => $mpesaReceipt,
                 'completed_at' => now(),
                 'failed_at' => null,
+                'starts_at' => $user->subscription_started_at,
+                'expires_at' => $expiry,
                 'gateway_response' => array_merge($gatewayResponse, [
                     'confirmed_at' => now()->toISOString(),
                     'confirmed_by' => 'mpesa_stk',
                     'subscription_activated' => true,
                     'subscription_days_added' => $days,
-                    'subscription_expires_at' => $newExpiry->toISOString(),
+                    'subscription_expires_at' => $expiry->toISOString(),
                 ]),
             ]);
         });
     }
 
-    /**
-     * Mark a payment failed only when failure is definitive.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | FAILURE AND LOOKUPS
+    |--------------------------------------------------------------------------
+    */
+
     public function failPayment(
         MpesaTransaction $tx,
         string $reason,
@@ -393,7 +411,7 @@ class EscortPaymentService
     }
 
     public function findByCheckoutRequestId(
-        string $checkoutRequestId,
+        string $checkoutRequestId
     ): ?MpesaTransaction {
         return MpesaTransaction::query()
             ->where('checkout_request_id', $checkoutRequestId)
@@ -401,9 +419,6 @@ class EscortPaymentService
             ->first();
     }
 
-    /**
-     * Find an unresolved escort payment by bill reference.
-     */
     public function findByBillRef(string $billRef): ?MpesaTransaction
     {
         return MpesaTransaction::query()
@@ -418,9 +433,274 @@ class EscortPaymentService
             ->first();
     }
 
-    /**
-     * Query an existing escort payment.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | MANUAL C2B REFERENCE GENERATION
+    |--------------------------------------------------------------------------
+    */
+
+    public function billRefForPlan(
+        User $user,
+        PricingPlan|int $plan,
+        int $days,
+    ): string {
+        if ($days < 1 || $days > 3650) {
+            throw new \InvalidArgumentException(
+                'Invalid subscription duration.'
+            );
+        }
+
+        $plan = $plan instanceof PricingPlan
+            ? PricingPlan::query()
+                ->ofType(PricingPlan::TYPE_ESCORT_LISTING)
+                ->active()
+                ->findOrFail($plan->id)
+            : PricingPlan::query()
+                ->ofType(PricingPlan::TYPE_ESCORT_LISTING)
+                ->active()
+                ->findOrFail($plan);
+
+        if (!$plan->isCustom() && (int) $plan->days !== $days) {
+            throw new \InvalidArgumentException(
+                'Invalid subscription duration for the selected plan.'
+            );
+        }
+
+        $amount = (int) round($plan->priceFor($days));
+
+        if ($amount < 1) {
+            throw new \InvalidArgumentException(
+                'Invalid subscription amount.'
+            );
+        }
+
+        do {
+            $reference = 'E-' . $user->id
+                . '-' . $plan->id
+                . '-' . Str::upper(Str::random(7));
+
+            $stored = Cache::add(
+                $this->directIntentKey($reference),
+                [
+                    'user_id' => $user->id,
+                    'plan_id' => $plan->id,
+                    'days' => $days,
+                    'amount' => $amount,
+                    'plan_label' => $plan->label,
+                    'created_at' => now()->toISOString(),
+                ],
+                now()->addHours(self::DIRECT_INTENT_TTL_HOURS)
+            );
+        } while (!$stored);
+
+        return $reference;
+    }
+
+    public function billRefForUser(User $user): string
+    {
+        throw new \InvalidArgumentException(
+            'A pricing plan and duration are required. Use billRefForPlan($user, $plan, $days).'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | MANUAL C2B VALIDATION
+    |--------------------------------------------------------------------------
+    */
+
+    public function validateDirectPayment(
+        string $billRef,
+        int $amountKes,
+    ): bool {
+        $intent = $this->directIntent($billRef);
+
+        if (!$intent || $amountKes < 1) {
+            return false;
+        }
+
+        if ((int) $intent['amount'] !== $amountKes) {
+            return false;
+        }
+
+        $userExists = User::query()
+            ->whereKey($intent['user_id'] ?? 0)
+            ->exists();
+
+        if (!$userExists) {
+            return false;
+        }
+
+        $plan = PricingPlan::query()
+            ->ofType(PricingPlan::TYPE_ESCORT_LISTING)
+            ->active()
+            ->find($intent['plan_id'] ?? 0);
+
+        if (!$plan) {
+            return false;
+        }
+
+        $days = (int) ($intent['days'] ?? 0);
+
+        if ($days < 1 || $days > 3650) {
+            return false;
+        }
+
+        if (!$plan->isCustom() && (int) $plan->days !== $days) {
+            return false;
+        }
+
+        return (int) round($plan->priceFor($days)) === $amountKes;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | MANUAL C2B CONFIRMATION
+    |--------------------------------------------------------------------------
+    */
+
+    public function confirmDirectPayment(
+        string $billRef,
+        string $transId,
+        int $amountKes,
+        string $phone,
+    ): ?MpesaTransaction {
+        $transId = strtoupper(trim($transId));
+        $phone = trim($phone);
+        $billRef = strtoupper(trim($billRef));
+
+        if ($transId === '' || $amountKes < 1 || $billRef === '') {
+            return null;
+        }
+
+        try {
+            $tx = DB::transaction(function () use ($billRef, $transId, $amountKes, $phone) {
+                $existingReceipt = MpesaTransaction::query()
+                    ->where('mpesa_receipt', $transId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingReceipt) {
+                    return $existingReceipt->type === MpesaTransaction::TYPE_ESCORT_LISTING_FEES
+                        ? $existingReceipt
+                        : null;
+                }
+
+                $intent = $this->directIntent($billRef);
+
+                if (
+                    !$intent
+                    || !$this->validateDirectPayment($billRef, $amountKes)
+                ) {
+                    Log::warning('Rejected C2B escort confirmation.', [
+                        'bill_ref' => $billRef,
+                        'trans_id' => $transId,
+                        'amount' => $amountKes,
+                    ]);
+
+                    return null;
+                }
+
+                $user = User::query()
+                    ->lockForUpdate()
+                    ->find($intent['user_id']);
+
+                if (!$user) {
+                    return null;
+                }
+
+                $plan = PricingPlan::query()
+                    ->ofType(PricingPlan::TYPE_ESCORT_LISTING)
+                    ->active()
+                    ->find($intent['plan_id']);
+
+                if (!$plan) {
+                    return null;
+                }
+
+                $days = (int) $intent['days'];
+
+                if (
+                    $days < 1
+                    || $days > 3650
+                    || (!$plan->isCustom() && (int) $plan->days !== $days)
+                    || (int) round($plan->priceFor($days)) !== $amountKes
+                ) {
+                    return null;
+                }
+
+                $expiry = $this->activateSubscription(
+                    $user,
+                    $days,
+                    $plan->label
+                );
+
+                return MpesaTransaction::create([
+                    'user_id' => $user->id,
+                    'type' => MpesaTransaction::TYPE_ESCORT_LISTING_FEES,
+                    'direction' => MpesaTransaction::DIRECTION_INBOUND,
+                    'status' => MpesaTransaction::STATUS_COMPLETED,
+                    'amount' => $amountKes,
+                    'currency' => 'KES',
+                    'phone' => $phone,
+                    'reference' => $billRef,
+                    'bill_ref_number' => $billRef,
+                    'mpesa_receipt' => $transId,
+                    'trans_id' => $transId,
+                    'pricing_plan_id' => $plan->id,
+                    'days' => $days,
+                    'unit_price' => $plan->unit_price,
+                    'starts_at' => $user->subscription_started_at,
+                    'expires_at' => $expiry,
+                    'completed_at' => now(),
+                    'meta' => [
+                        'created_for' => 'escort_subscription',
+                        'payment_method' => 'c2b',
+                        'plan_id' => $plan->id,
+                        'plan_key' => $plan->key,
+                        'plan_label' => $plan->label,
+                        'days' => $days,
+                        'unit_price' => (float) $plan->unit_price,
+                        'discount_percent' => (float) $plan->discount_percent,
+                        'amount' => $amountKes,
+                    ],
+                    'gateway_response' => [
+                        'confirmed_by' => 'mpesa_c2b',
+                        'confirmed_at' => now()->toISOString(),
+                        'subscription_activated' => true,
+                        'subscription_days_added' => $days,
+                        'subscription_expires_at' => $expiry->toISOString(),
+                    ],
+                ]);
+            });
+
+            if ($tx) {
+                Cache::forget($this->directIntentKey($billRef));
+            }
+
+            return $tx;
+        } catch (UniqueConstraintViolationException $e) {
+            return MpesaTransaction::query()
+                ->where('mpesa_receipt', $transId)
+                ->where('type', MpesaTransaction::TYPE_ESCORT_LISTING_FEES)
+                ->first();
+        } catch (Throwable $e) {
+            Log::error('C2B escort payment processing failed.', [
+                'trans_id' => $transId,
+                'bill_ref' => $billRef,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | STK RECONCILIATION
+    |--------------------------------------------------------------------------
+    */
+
     public function reconcileStkQuery(MpesaTransaction $tx): array
     {
         $tx = $tx->fresh();
@@ -448,9 +728,7 @@ class EscortPaymentService
         }
 
         try {
-            $result = $this->payments->queryStk(
-                $tx->checkout_request_id
-            );
+            $result = $this->payments->queryStk($tx->checkout_request_id);
 
             if (!$result['success']) {
                 return [
@@ -488,7 +766,7 @@ class EscortPaymentService
 
             $this->failPayment(
                 $tx,
-                $result['result_desc'] ?? 'M-PESA payment failed.',
+                $result['result_desc'] ?? 'M-PESA payment failed.'
             );
 
             return [
@@ -508,8 +786,73 @@ class EscortPaymentService
         }
     }
 
-    public function billRefForUser(User $user): string
+    /*
+    |--------------------------------------------------------------------------
+    | INTERNAL HELPERS
+    |--------------------------------------------------------------------------
+    */
+
+    protected function directIntentKey(string $billRef): string
     {
-        return $this->payments->generateReference('ESCORT', $user);
+        return 'mpesa:c2b:escort:' . hash(
+            'sha256',
+            strtoupper(trim($billRef))
+        );
+    }
+
+    protected function directIntent(string $billRef): ?array
+    {
+        $intent = Cache::get($this->directIntentKey($billRef));
+
+        return is_array($intent) ? $intent : null;
+    }
+
+    protected function receiptBelongsToAnotherTransaction(
+        string $receipt,
+        int $transactionId,
+    ): bool {
+        return MpesaTransaction::query()
+            ->where('mpesa_receipt', $receipt)
+            ->where('id', '!=', $transactionId)
+            ->exists();
+    }
+
+    protected function activateSubscription(
+        User $user,
+        int $days,
+        string $planLabel,
+    ): CarbonImmutable {
+        $now = CarbonImmutable::now();
+
+        $existingExpiry = $user->subscription_expires_at
+            ? CarbonImmutable::parse($user->subscription_expires_at)
+            : null;
+
+        $existingStart = $user->subscription_started_at
+            ? CarbonImmutable::parse($user->subscription_started_at)
+            : null;
+
+        $hasActiveSubscription = $existingStart
+            && $existingExpiry
+            && $existingStart->lte($now)
+            && $existingExpiry->gt($now);
+
+        $subscriptionStart = $hasActiveSubscription
+            ? $existingStart
+            : $now;
+
+        $expiryBase = $existingExpiry && $existingExpiry->gt($now)
+            ? $existingExpiry
+            : $now;
+
+        $newExpiry = $expiryBase->addDays($days);
+
+        $user->forceFill([
+            'subscription_plan' => $planLabel,
+            'subscription_started_at' => $subscriptionStart,
+            'subscription_expires_at' => $newExpiry,
+        ])->save();
+
+        return $newExpiry;
     }
 }

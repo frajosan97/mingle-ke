@@ -47,7 +47,7 @@ class ReconcileMpesaTransactions extends Command
 
         $transactionIds = MpesaTransaction::query()
             ->where('direction', MpesaTransaction::DIRECTION_INBOUND)
-            ->whereIn('type', $this->supportedTypes())
+            // ->whereIn('type', $this->supportedTypes())
             ->whereIn('status', $this->unresolvedStatuses())
             ->where('created_at', '<=', now()->subMinutes($queryAfter))
             ->orderBy('updated_at')

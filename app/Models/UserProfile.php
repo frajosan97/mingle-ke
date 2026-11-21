@@ -36,9 +36,6 @@ class UserProfile extends Model
         'is_approved',
         'approved_at',
         'is_featured',
-        'listing_tier',
-        'listing_started_at',
-        'listing_expires_at',
         'phone_visible',
         'profile_views',
         'rating_count',
@@ -67,8 +64,6 @@ class UserProfile extends Model
             'rating_count' => 'integer',
             'rating_avg' => 'decimal:2',
             'approved_at' => 'datetime',
-            'listing_started_at' => 'datetime',
-            'listing_expires_at' => 'datetime',
         ];
     }
 
@@ -91,16 +86,20 @@ class UserProfile extends Model
             ->where('type', MpesaTransaction::TYPE_ESCORT_LISTING_FEES);
     }
 
+    /**
+     * A user with a profile is automatically an escort.
+     */
     public function isListed(): bool
     {
-        return $this->listing_tier === 'escort';
+        return true;
     }
 
+    /**
+     * Profiles are automatically listed.
+     */
     public function hasActiveListing(): bool
     {
-        return $this->isListed()
-            && $this->listing_expires_at !== null
-            && $this->listing_expires_at->isFuture();
+        return true;
     }
 
     public function isPhoneVisible(): bool
@@ -132,16 +131,20 @@ class UserProfile extends Model
         return $query->where('is_featured', true);
     }
 
+    /**
+     * Every existing profile is an escort.
+     */
     public function scopeEscortTier(Builder $query): Builder
     {
-        return $query->where('listing_tier', 'escort');
+        return $query;
     }
 
+    /**
+     * Every profile has an active listing.
+     */
     public function scopeActiveListing(Builder $query): Builder
     {
-        return $query->where('listing_tier', 'escort')
-            ->whereNotNull('listing_expires_at')
-            ->where('listing_expires_at', '>', now());
+        return $query;
     }
 
     public function scopeRanked(Builder $query): Builder

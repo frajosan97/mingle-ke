@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
 use App\Services\CoinsPurchaseService;
+use App\Services\EscortPaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -13,13 +14,17 @@ use Throwable;
 class MpesaCallbackController extends Controller
 {
     public function __construct(
-        protected CoinsPurchaseService $CoinsPurchaseService
+        protected CoinsPurchaseService $coinsPurchaseService,
+        protected EscortPaymentService $escortPaymentService,
     ) {
     }
 
-    /**
-     * M-PESA STK Push callback.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | STK PUSH CALLBACK
+    |--------------------------------------------------------------------------
+    */
+
     public function stk(Request $request): Response
     {
         $stk = $request->input('Body.stkCallback');
@@ -27,178 +32,380 @@ class MpesaCallbackController extends Controller
         if (!is_array($stk)) {
             Log::warning('Invalid M-PESA STK callback payload.');
 
-            return response('OK');
+            return response('OK', 200);
         }
 
-        $checkoutId = $stk['CheckoutRequestID'] ?? null;
-        $merchantId = $stk['MerchantRequestID'] ?? null;
+        $checkoutId = trim((string) ($stk['CheckoutRequestID'] ?? ''));
+        $merchantId = trim((string) ($stk['MerchantRequestID'] ?? ''));
         $resultCode = $stk['ResultCode'] ?? null;
-        $resultDesc = (string) ($stk['ResultDesc'] ?? 'Unknown M-PESA result');
 
-        if (!$checkoutId || !is_numeric($resultCode)) {
+        $resultDesc = (string) (
+            $stk['ResultDesc'] ?? 'Unknown M-PESA result'
+        );
+
+        if ($checkoutId === '' || !is_numeric($resultCode)) {
             Log::warning('M-PESA STK callback missing required fields.', [
                 'checkout_request_id' => $checkoutId,
                 'merchant_request_id' => $merchantId,
                 'result_code' => $resultCode,
             ]);
 
-            return response('OK');
+            return response('OK', 200);
         }
-
-        $transaction = $this->CoinsPurchaseService->findByCheckoutRequestId(
-            (string) $checkoutId
-        );
-
-        if (!$transaction) {
-            Log::warning('STK callback received for unknown transaction.', [
-                'checkout_request_id' => $checkoutId,
-                'merchant_request_id' => $merchantId,
-            ]);
-
-            return response('OK');
-        }
-
-        $resultCode = (int) $resultCode;
 
         try {
+            $transaction = $this->coinsPurchaseService
+                ->findByCheckoutRequestId($checkoutId);
+
+            $paymentService = $this->coinsPurchaseService;
+
+            if (!$transaction) {
+                $transaction = $this->escortPaymentService
+                    ->findByCheckoutRequestId($checkoutId);
+
+                $paymentService = $this->escortPaymentService;
+            }
+
+            if (!$transaction) {
+                Log::warning('STK callback received for unknown transaction.', [
+                    'checkout_request_id' => $checkoutId,
+                    'merchant_request_id' => $merchantId,
+                ]);
+
+                return response('OK', 200);
+            }
+
+            $resultCode = (int) $resultCode;
+
             if ($resultCode === 0) {
                 $items = data_get($stk, 'CallbackMetadata.Item', []);
+                $items = is_array($items) ? $items : [];
 
-                $receipt = collect(is_array($items) ? $items : [])
+                $receipt = collect($items)
                     ->firstWhere('Name', 'MpesaReceiptNumber');
 
                 $receiptNumber = data_get($receipt, 'Value');
 
-                if (!$receiptNumber) {
-                    // A reported success without a receipt must not be
-                    // converted into a failed transaction.
-                    Log::warning('Successful STK callback has no receipt number.', [
-                        'transaction_id' => $transaction->id,
-                        'checkout_request_id' => $checkoutId,
-                    ]);
+                $amountItem = collect($items)
+                    ->firstWhere('Name', 'Amount');
 
-                    return response('OK');
-                }
-
-                $this->CoinsPurchaseService->confirmPayment(
-                    $transaction,
-                    (string) $receiptNumber
+                $paidAmount = $this->wholeKesAmount(
+                    data_get($amountItem, 'Value')
                 );
 
-                Log::info('STK payment confirmation processed.', [
+                if (blank($receiptNumber)) {
+                    Log::warning(
+                        'Successful STK callback received without receipt.',
+                        [
+                            'transaction_id' => $transaction->id,
+                            'checkout_request_id' => $checkoutId,
+                        ]
+                    );
+
+                    return response('OK', 200);
+                }
+
+                if ($paidAmount === null) {
+                    Log::warning(
+                        'Successful STK callback received without valid amount.',
+                        [
+                            'transaction_id' => $transaction->id,
+                            'checkout_request_id' => $checkoutId,
+                        ]
+                    );
+
+                    return response('OK', 200);
+                }
+
+                $paymentService->confirmPayment(
+                    $transaction,
+                    (string) $receiptNumber,
+                    true,
+                    $paidAmount
+                );
+
+                Log::info('M-PESA STK confirmation processed.', [
                     'transaction_id' => $transaction->id,
+                    'checkout_request_id' => $checkoutId,
                     'receipt' => $receiptNumber,
+                    'amount' => $paidAmount,
+                    'payment_type' => $transaction->type,
                 ]);
             } else {
-                $this->CoinsPurchaseService->failPayment(
+                $paymentService->failPayment(
                     $transaction,
                     $resultDesc
                 );
 
-                Log::info('STK payment reported as unsuccessful.', [
+                Log::info('M-PESA STK payment unsuccessful.', [
                     'transaction_id' => $transaction->id,
+                    'checkout_request_id' => $checkoutId,
                     'result_code' => $resultCode,
                     'result_desc' => $resultDesc,
                 ]);
             }
         } catch (Throwable $e) {
             Log::error('Failed to process M-PESA STK callback.', [
-                'transaction_id' => $transaction->id,
                 'checkout_request_id' => $checkoutId,
+                'merchant_request_id' => $merchantId,
                 'error' => $e->getMessage(),
             ]);
         }
 
-        return response('OK');
+        // STK callback acknowledgement.
+        return response('OK', 200);
     }
 
-    /**
-     * M-PESA C2B validation callback.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | C2B VALIDATION CALLBACK
+    |--------------------------------------------------------------------------
+    */
+
     public function c2bValidation(Request $request): JsonResponse
     {
-        $billRef = trim((string) $request->input('BillRefNumber', ''));
+        $billRef = strtoupper(trim(
+            (string) $request->input('BillRefNumber', '')
+        ));
 
-        $accept = preg_match('/^COINS\d+$/i', $billRef) === 1;
+        $amount = $this->wholeKesAmount(
+            $request->input('TransAmount')
+        );
+
+        $accepted = false;
+        $reason = 'Invalid payment reference or amount.';
+
+        if ($billRef !== '' && $amount !== null) {
+            try {
+                if (
+                    preg_match(
+                        '/^C-(\d+)-([A-Z0-9]{4,20})$/',
+                        $billRef
+                    ) === 1
+                ) {
+                    $accepted = $this->coinsPurchaseService
+                        ->validateDirectPayment($billRef, $amount);
+
+                } elseif (
+                    preg_match(
+                        '/^E-(\d+)-(\d+)-([A-Z0-9]{4,20})$/',
+                        $billRef
+                    ) === 1
+                ) {
+                    $accepted = $this->escortPaymentService
+                        ->validateDirectPayment($billRef, $amount);
+                }
+
+                if ($accepted) {
+                    $reason = 'Accepted';
+                }
+            } catch (Throwable $e) {
+                Log::error('M-PESA C2B validation failed.', [
+                    'bill_ref' => $billRef,
+                    'amount' => $amount,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return $this->c2bResponse(
+                    1,
+                    'Unable to validate payment.'
+                );
+            }
+        }
 
         Log::info('M-PESA C2B validation received.', [
             'bill_ref' => $billRef,
-            'accepted' => $accept,
+            'amount' => $amount,
+            'accepted' => $accepted,
         ]);
 
-        return response()->json([
-            'ResultCode' => $accept ? 0 : 'C2B00012',
-            'ResultDesc' => $accept
-                ? 'Accepted'
-                : 'Invalid reference',
-        ]);
+        return $this->c2bResponse(
+            $accepted ? 0 : 1,
+            $reason
+        );
     }
 
-    /**
-     * M-PESA C2B confirmation callback.
-     */
-    public function c2bConfirmation(Request $request): Response
+    /*
+    |--------------------------------------------------------------------------
+    | C2B CONFIRMATION CALLBACK
+    |--------------------------------------------------------------------------
+    */
+
+    public function c2bConfirmation(Request $request): JsonResponse
     {
-        $billRef = trim((string) $request->input('BillRefNumber', ''));
-        $transId = trim((string) $request->input('TransID', ''));
-        $amount = $request->input('TransAmount');
-        $phone = trim((string) $request->input('MSISDN', ''));
+        $billRef = strtoupper(trim(
+            (string) $request->input('BillRefNumber', '')
+        ));
+
+        $receipt = strtoupper(trim(
+            (string) $request->input('TransID', '')
+        ));
+
+        $amount = $this->wholeKesAmount(
+            $request->input('TransAmount')
+        );
+
+        $phone = trim(
+            (string) $request->input('MSISDN', '')
+        );
 
         if (
-            $billRef === '' ||
-            $transId === '' ||
-            !is_numeric($amount) ||
-            (float) $amount <= 0
+            $billRef === ''
+            || $receipt === ''
+            || $amount === null
         ) {
             Log::warning('Invalid M-PESA C2B confirmation.', [
                 'bill_ref' => $billRef,
-                'trans_id' => $transId,
+                'receipt' => $receipt,
+                'amount' => $request->input('TransAmount'),
             ]);
 
-            return response('OK');
-        }
-
-        // Coin packages currently use whole-KES amounts.
-        if ((float) $amount !== (float) (int) $amount) {
-            Log::warning('C2B confirmation has a fractional amount.', [
-                'bill_ref' => $billRef,
-                'trans_id' => $transId,
-                'amount' => $amount,
-            ]);
-
-            return response('OK');
+            return $this->c2bResponse(
+                1,
+                'Invalid confirmation details.'
+            );
         }
 
         try {
-            $transaction = $this->CoinsPurchaseService->confirmDirectPayment(
-                $billRef,
-                $transId,
-                (int) $amount,
-                $phone
-            );
+            $transaction = null;
+            $paymentType = null;
 
-            if (!$transaction) {
-                Log::warning('C2B payment could not be matched.', [
-                    'bill_ref' => $billRef,
-                    'trans_id' => $transId,
-                ]);
+            if (
+                preg_match(
+                    '/^C-(\d+)-([A-Z0-9]{4,20})$/',
+                    $billRef
+                ) === 1
+            ) {
+                $paymentType = 'coins';
 
-                return response('OK');
+                $transaction = $this->coinsPurchaseService
+                    ->confirmDirectPayment(
+                        $billRef,
+                        $receipt,
+                        $amount,
+                        $phone
+                    );
+
+            } elseif (
+                preg_match(
+                    '/^E-(\d+)-(\d+)-([A-Z0-9]{4,20})$/',
+                    $billRef
+                ) === 1
+            ) {
+                $paymentType = 'escort';
+
+                $transaction = $this->escortPaymentService
+                    ->confirmDirectPayment(
+                        $billRef,
+                        $receipt,
+                        $amount,
+                        $phone
+                    );
+
+            } else {
+                Log::warning(
+                    'Unrecognized M-PESA C2B payment reference.',
+                    [
+                        'bill_ref' => $billRef,
+                        'receipt' => $receipt,
+                    ]
+                );
+
+                return $this->c2bResponse(
+                    1,
+                    'Unrecognized payment reference.'
+                );
             }
 
-            Log::info('C2B confirmation processed.', [
-                'transaction_id' => $transaction->id,
-                'trans_id' => $transId,
-                'bill_ref' => $billRef,
-            ]);
+            if (!$transaction) {
+                Log::warning(
+                    'M-PESA C2B payment could not be processed.',
+                    [
+                        'bill_ref' => $billRef,
+                        'receipt' => $receipt,
+                        'amount' => $amount,
+                        'payment_type' => $paymentType,
+                    ]
+                );
+
+                return $this->c2bResponse(
+                    1,
+                    'Payment could not be processed.'
+                );
+            }
+
+            Log::info(
+                'M-PESA C2B payment successfully processed.',
+                [
+                    'transaction_id' => $transaction->id,
+                    'receipt' => $receipt,
+                    'bill_ref' => $billRef,
+                    'amount' => $amount,
+                    'payment_type' => $paymentType,
+                ]
+            );
+
+            return $this->c2bResponse(
+                0,
+                'Accepted'
+            );
+
         } catch (Throwable $e) {
-            Log::error('Failed to process M-PESA C2B confirmation.', [
-                'bill_ref' => $billRef,
-                'trans_id' => $transId,
-                'error' => $e->getMessage(),
-            ]);
+            Log::error(
+                'Failed to process M-PESA C2B confirmation.',
+                [
+                    'bill_ref' => $billRef,
+                    'receipt' => $receipt,
+                    'amount' => $amount,
+                    'error' => $e->getMessage(),
+                ]
+            );
+
+            // Do not falsely acknowledge a payment that failed
+            // during internal processing.
+            return $this->c2bResponse(
+                1,
+                'Internal payment processing error.',
+                500
+            );
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | RESPONSE HELPERS
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Standard M-PESA C2B JSON response.
+     */
+    private function c2bResponse(
+        int $resultCode,
+        string $resultDesc,
+        int $httpStatus = 200,
+    ): JsonResponse {
+        return response()->json([
+            'ResultCode' => $resultCode,
+            'ResultDesc' => $resultDesc,
+        ], $httpStatus);
+    }
+
+    /**
+     * Convert a valid whole-KES amount into an integer.
+     */
+    private function wholeKesAmount(mixed $amount): ?int
+    {
+        if (
+            !is_numeric($amount)
+            || !is_finite((float) $amount)
+            || (float) $amount <= 0
+            || floor((float) $amount) !== (float) $amount
+            || (float) $amount > PHP_INT_MAX
+        ) {
+            return null;
         }
 
-        return response('OK');
+        return (int) $amount;
     }
 }

@@ -37,9 +37,6 @@ class EscortController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Display discoverable escort profiles.
-     */
     public function index(EscortIndexRequest $request): Response
     {
         $user = $request->user();
@@ -78,9 +75,6 @@ class EscortController extends Controller
         ]);
     }
 
-    /**
-     * Display an individual escort profile.
-     */
     public function show(Request $request, User $user): Response
     {
         $viewer = $request->user();
@@ -139,9 +133,6 @@ class EscortController extends Controller
         ]);
     }
 
-    /**
-     * Like an escort profile.
-     */
     public function like(Request $request, User $user): JsonResponse
     {
         $viewer = $request->user();
@@ -185,9 +176,6 @@ class EscortController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Display the escort management page.
-     */
     public function manage(Request $request): Response
     {
         $user = $request->user();
@@ -202,9 +190,6 @@ class EscortController extends Controller
         ]);
     }
 
-    /**
-     * Display the escort onboarding form.
-     */
     public function create(Request $request): Response
     {
         $user = $request->user();
@@ -221,9 +206,6 @@ class EscortController extends Controller
         ]);
     }
 
-    /**
-     * Save or update escort onboarding information.
-     */
     public function store(EscortOnboardingRequest $request): RedirectResponse
     {
         $user = $request->user();
@@ -248,9 +230,6 @@ class EscortController extends Controller
         return to_route('profile.edit');
     }
 
-    /**
-     * Update escort onboarding information.
-     */
     public function update(EscortOnboardingRequest $request): RedirectResponse
     {
         return $this->store($request);
@@ -262,9 +241,6 @@ class EscortController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Display available escort listing subscription plans.
-     */
     public function subscription(Request $request): Response|RedirectResponse
     {
         $user = $request->user();
@@ -283,15 +259,72 @@ class EscortController extends Controller
             'plans' => EscortSubscriptionPlanResource::collection(
                 $plans
             )->resolve(),
-
             'phone' => $user->phone ?? '',
+            'paybill' => config('services.mpesa.shortcode'),
             'subscription' => $this->subscriptionData($user),
         ]);
     }
 
     /**
-     * Start an escort subscription payment.
+     * Generate a temporary reference for manual M-PESA payment.
+     *
+     * No MpesaTransaction is created until Safaricom confirms payment.
      */
+    public function manualReference(
+        Request $request,
+        EscortPaymentService $payments
+    ): JsonResponse {
+        $validated = $request->validate([
+            'plan_id' => [
+                'required',
+                'integer',
+                'exists:pricing_plans,id',
+            ],
+            'days' => [
+                'required',
+                'integer',
+                'min:1',
+                'max:3650',
+            ],
+        ]);
+
+        $plan = PricingPlan::query()
+            ->ofType(PricingPlan::TYPE_ESCORT_LISTING)
+            ->active()
+            ->findOrFail((int) $validated['plan_id']);
+
+        $days = (int) $validated['days'];
+
+        if (!$plan->isCustom() && (int) $plan->days !== $days) {
+            return response()->json([
+                'message' => 'Invalid subscription duration for the selected plan.',
+            ], 422);
+        }
+
+        try {
+            $billRef = $payments->billRefForPlan(
+                $request->user(),
+                $plan,
+                $days,
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'bill_ref' => $billRef,
+            'amount' => (int) round($plan->priceFor($days)),
+            'currency' => $plan->currency ?: 'KES',
+            'expires_at' => now()
+                ->addHours(24)
+                ->toIso8601String(),
+            'paybill' => config('services.mpesa.paybill'),
+        ]);
+    }
+
     public function checkoutSubscription(
         EscortSubscriptionCheckoutRequest $request,
         EscortPaymentService $payments,
@@ -323,9 +356,6 @@ class EscortController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Update the user's location.
-     */
     public function updateLocation(
         UpdateLocationRequest $request
     ): RedirectResponse {
@@ -343,9 +373,6 @@ class EscortController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Return the user's escort subscription information.
-     */
     private function subscriptionData(User $user): array
     {
         return [
@@ -359,9 +386,6 @@ class EscortController extends Controller
         ];
     }
 
-    /**
-     * Prepare escort profile data for the onboarding form.
-     */
     private function profilePayload(User $user): array
     {
         $profile = $user->profile;

@@ -49,40 +49,16 @@ class MpesaService
 
         $this->initiatorName = (string) config('services.mpesa.initiator_name', '');
         $this->initiatorPassword = (string) config('services.mpesa.initiator_password', '');
+        $this->b2cShortcode = (string) config('services.mpesa.b2c_shortcode', '');
 
-        $this->b2cShortcode = (string) config(
-            'services.mpesa.b2c_shortcode',
-            ''
-        );
+        $this->callbackUrl = (string) config('services.mpesa.callback_url', '');
+        $this->resultUrl = (string) config('services.mpesa.result_url', '');
+        $this->queueTimeoutUrl = (string) config('services.mpesa.queue_timeout_url', '');
 
-        $this->callbackUrl = (string) config(
-            'services.mpesa.callback_url',
-            ''
-        );
+        $this->c2bValidationUrl = (string) config('services.mpesa.validation_url', '');
+        $this->c2bConfirmationUrl = (string) config('services.mpesa.confirmation_url', '');
 
-        $this->resultUrl = (string) config(
-            'services.mpesa.result_url',
-            ''
-        );
-
-        $this->queueTimeoutUrl = (string) config(
-            'services.mpesa.queue_timeout_url',
-            ''
-        );
-
-        $this->c2bValidationUrl = (string) config(
-            'services.mpesa.validation_url',
-            ''
-        );
-
-        $this->c2bConfirmationUrl = (string) config(
-            'services.mpesa.confirmation_url',
-            ''
-        );
-
-        $this->certificatePath = config(
-            'services.mpesa.certificate_path'
-        );
+        $this->certificatePath = config('services.mpesa.certificate_path');
 
         if (!$this->certificatePath) {
             $this->certificatePath = $this->env === 'production'
@@ -91,9 +67,7 @@ class MpesaService
         }
 
         if ($this->initiatorPassword !== '') {
-            $this->securityCredential = $this->generateCredential(
-                $this->initiatorPassword
-            );
+            $this->securityCredential = $this->generateCredential($this->initiatorPassword);
         }
     }
 
@@ -166,10 +140,7 @@ class MpesaService
 
     protected function generateCredential(string $password): ?string
     {
-        if (
-            !$this->certificatePath ||
-            !is_file($this->certificatePath)
-        ) {
+        if (!$this->certificatePath || !is_file($this->certificatePath)) {
             Log::error('M-PESA certificate file not found.', [
                 'certificate_path' => $this->certificatePath,
             ]);
@@ -225,25 +196,13 @@ class MpesaService
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Get and cache an OAuth access token.
-     *
-     * Daraja tokens normally last 3600 seconds.
-     * Cache slightly below that duration.
-     */
     protected function generateToken(): ?string
     {
-        if (
-            $this->consumerKey === '' ||
-            $this->consumerSecret === ''
-        ) {
+        if ($this->consumerKey === '' || $this->consumerSecret === '') {
             return null;
         }
 
-        $cacheKey = 'mpesa.access_token.' . hash(
-            'sha256',
-            $this->consumerKey
-        );
+        $cacheKey = 'mpesa.access_token.' . hash('sha256', $this->consumerKey);
 
         try {
             $cachedToken = Cache::get($cacheKey);
@@ -252,19 +211,13 @@ class MpesaService
                 return $cachedToken;
             }
 
-            $response = Http::withBasicAuth(
-                $this->consumerKey,
-                $this->consumerSecret
-            )
+            $response = Http::withBasicAuth($this->consumerKey, $this->consumerSecret)
                 ->acceptJson()
                 ->connectTimeout(10)
                 ->timeout(20)
-                ->get(
-                    $this->baseUrl . '/oauth/v1/generate',
-                    [
-                        'grant_type' => 'client_credentials',
-                    ]
-                );
+                ->get($this->baseUrl . '/oauth/v1/generate', [
+                    'grant_type' => 'client_credentials',
+                ]);
 
             if (!$response->successful()) {
                 Log::error('M-PESA OAuth request failed.', [
@@ -285,11 +238,7 @@ class MpesaService
                 return null;
             }
 
-            Cache::put(
-                $cacheKey,
-                $token,
-                now()->addSeconds(3500)
-            );
+            Cache::put($cacheKey, $token, now()->addSeconds(3500));
 
             return $token;
         } catch (Throwable $e) {
@@ -307,11 +256,6 @@ class MpesaService
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Initiate an STK Push request.
-     *
-     * Never retries a payment request.
-     */
     public function stkPush(
         string $phone,
         int $amount,
@@ -356,9 +300,7 @@ class MpesaService
 
         $timestamp = now()->format('YmdHis');
 
-        $password = base64_encode(
-            $this->shortcode . $this->passkey . $timestamp
-        );
+        $password = base64_encode($this->shortcode . $this->passkey . $timestamp);
 
         $payload = [
             'BusinessShortCode' => $this->shortcode,
@@ -380,10 +322,7 @@ class MpesaService
                 ->asJson()
                 ->connectTimeout(10)
                 ->timeout(30)
-                ->post(
-                    $this->baseUrl . '/mpesa/stkpush/v1/processrequest',
-                    $payload
-                );
+                ->post($this->baseUrl . '/mpesa/stkpush/v1/processrequest', $payload);
 
             $body = $response->json() ?? [];
 
@@ -471,32 +410,16 @@ class MpesaService
         }
     }
 
-    /**
-     * Initiate STK Push and return a normalized response.
-     *
-     * This is the method payment services should call.
-     * It does not retry the request.
-     */
     public function initiateStk(
         string $phone,
         int $amountKes,
         string $reference,
         string $description
     ): array {
-        $raw = $this->stkPush(
-            $phone,
-            $amountKes,
-            $reference,
-            $description
-        );
+        $raw = $this->stkPush($phone, $amountKes, $reference, $description);
 
-        $checkoutRequestId = $raw['checkout_request_id']
-            ?? $raw['CheckoutRequestID']
-            ?? null;
-
-        $merchantRequestId = $raw['merchant_request_id']
-            ?? $raw['MerchantRequestID']
-            ?? null;
+        $checkoutRequestId = $raw['checkout_request_id'] ?? null;
+        $merchantRequestId = $raw['merchant_request_id'] ?? null;
 
         $success = (bool) ($raw['success'] ?? false);
         $uncertain = (bool) ($raw['uncertain'] ?? false);
@@ -513,8 +436,6 @@ class MpesaService
             'merchant_request_id' => $merchantRequestId,
             'message' => $raw['message']
                 ?? $raw['customer_message']
-                ?? $raw['CustomerMessage']
-                ?? $raw['ResponseDescription']
                 ?? 'M-PESA did not provide a response message.',
             'raw' => $raw,
         ];
@@ -526,18 +447,12 @@ class MpesaService
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Query the status of an STK request.
-     *
-     * ResponseCode represents the query request result.
-     * ResultCode represents the actual customer payment result.
-     */
     public function stkQuery(string $checkoutRequestId): array
     {
         if (
-            $this->shortcode === '' ||
-            $this->passkey === '' ||
-            trim($checkoutRequestId) === ''
+            $this->shortcode === ''
+            || $this->passkey === ''
+            || trim($checkoutRequestId) === ''
         ) {
             return [
                 'success' => false,
@@ -556,9 +471,7 @@ class MpesaService
 
         $timestamp = now()->format('YmdHis');
 
-        $password = base64_encode(
-            $this->shortcode . $this->passkey . $timestamp
-        );
+        $password = base64_encode($this->shortcode . $this->passkey . $timestamp);
 
         $payload = [
             'BusinessShortCode' => $this->shortcode,
@@ -573,10 +486,7 @@ class MpesaService
                 ->asJson()
                 ->connectTimeout(10)
                 ->timeout(30)
-                ->post(
-                    $this->baseUrl . '/mpesa/stkpushquery/v1/query',
-                    $payload
-                );
+                ->post($this->baseUrl . '/mpesa/stkpushquery/v1/query', $payload);
 
             $body = $response->json();
 
@@ -644,27 +554,15 @@ class MpesaService
         }
     }
 
-    /**
-     * Query an existing STK request and return a normalized response.
-     */
     public function queryStk(string $checkoutRequestId): array
     {
         $raw = $this->stkQuery($checkoutRequestId);
 
-        $resultCode = $raw['result_code']
-            ?? $raw['ResultCode']
-            ?? null;
-
+        $resultCode = $raw['result_code'] ?? null;
         $resultDescription = $raw['result_desc']
-            ?? $raw['ResultDesc']
-            ?? $raw['ResponseDescription']
             ?? $raw['message']
             ?? null;
-
-        $receipt = $raw['receipt']
-            ?? $raw['MpesaReceiptNumber']
-            ?? $raw['mpesaReceiptNumber']
-            ?? null;
+        $receipt = $raw['receipt'] ?? null;
 
         return [
             'success' => (bool) ($raw['success'] ?? false),
@@ -684,15 +582,6 @@ class MpesaService
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Initiate a B2C payment.
-     *
-     * A successful response means the request was accepted,
-     * not that the recipient has received the money.
-     *
-     * Wait for the B2C result callback before completing
-     * the withdrawal transaction.
-     */
     public function processB2C(
         string $phone,
         int $amount,
@@ -742,21 +631,18 @@ class MpesaService
                 ->asJson()
                 ->connectTimeout(10)
                 ->timeout(30)
-                ->post(
-                    $this->baseUrl . '/mpesa/b2c/v3/paymentrequest',
-                    [
-                        'InitiatorName' => $this->initiatorName,
-                        'SecurityCredential' => $this->securityCredential,
-                        'CommandID' => $commandId,
-                        'Amount' => $amount,
-                        'PartyA' => $this->b2cShortcode,
-                        'PartyB' => $phone,
-                        'Remarks' => $remarks,
-                        'QueueTimeOutURL' => $this->queueTimeoutUrl,
-                        'ResultURL' => $this->resultUrl,
-                        'Occasion' => $occasion,
-                    ]
-                );
+                ->post($this->baseUrl . '/mpesa/b2c/v3/paymentrequest', [
+                    'InitiatorName' => $this->initiatorName,
+                    'SecurityCredential' => $this->securityCredential,
+                    'CommandID' => $commandId,
+                    'Amount' => $amount,
+                    'PartyA' => $this->b2cShortcode,
+                    'PartyB' => $phone,
+                    'Remarks' => $remarks,
+                    'QueueTimeOutURL' => $this->queueTimeoutUrl,
+                    'ResultURL' => $this->resultUrl,
+                    'Occasion' => $occasion,
+                ]);
 
             $body = $response->json() ?? [];
 
@@ -828,9 +714,6 @@ class MpesaService
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Register C2B validation and confirmation URLs.
-     */
     public function registerC2bUrls(): array
     {
         if (!$this->isC2bConfigured()) {
@@ -855,15 +738,12 @@ class MpesaService
                 ->asJson()
                 ->connectTimeout(10)
                 ->timeout(30)
-                ->post(
-                    $this->baseUrl . '/mpesa/c2b/v1/registerurl',
-                    [
-                        'ShortCode' => $this->shortcode,
-                        'ResponseType' => 'Completed',
-                        'ConfirmationURL' => $this->c2bConfirmationUrl,
-                        'ValidationURL' => $this->c2bValidationUrl,
-                    ]
-                );
+                ->post($this->baseUrl . '/mpesa/c2b/v1/registerurl', [
+                    'ShortCode' => $this->shortcode,
+                    'ResponseType' => 'Completed',
+                    'ConfirmationURL' => $this->c2bConfirmationUrl,
+                    'ValidationURL' => $this->c2bValidationUrl,
+                ]);
 
             $body = $response->json() ?? [];
 
@@ -904,17 +784,6 @@ class MpesaService
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Convert a Kenyan phone number to 254XXXXXXXXX.
-     *
-     * Accepts:
-     * 07XXXXXXXX
-     * 01XXXXXXXX
-     * 2547XXXXXXXX
-     * 2541XXXXXXXX
-     * +2547XXXXXXXX
-     * +2541XXXXXXXX
-     */
     protected function formatPhone(string $phone): ?string
     {
         $phone = preg_replace('/\D+/', '', trim($phone));
@@ -925,10 +794,7 @@ class MpesaService
 
         if (str_starts_with($phone, '0')) {
             $phone = '254' . substr($phone, 1);
-        } elseif (
-            str_starts_with($phone, '7') ||
-            str_starts_with($phone, '1')
-        ) {
+        } elseif (str_starts_with($phone, '7') || str_starts_with($phone, '1')) {
             $phone = '254' . $phone;
         }
 

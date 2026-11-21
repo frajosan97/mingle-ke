@@ -1,5 +1,5 @@
 // resources/js/lib/nav-items.ts
-import { MessageCircle, Compass, BadgeCheck } from "lucide-react";
+import { MessageCircle, Compass, BadgeCheck, Wallet, Home, LayoutDashboard } from "lucide-react";
 import type { NavItem } from "@/types";
 
 export type AppNavItem = NavItem & {
@@ -9,16 +9,28 @@ export type AppNavItem = NavItem & {
 export function buildNavItems(url: string): AppNavItem[] {
     return [
         {
+            title: "Dashboard",
+            href: "/dashboard",
+            icon: LayoutDashboard,
+            isActive: url.startsWith("/dashboard"),
+        },
+        {
             title: "Messages",
             href: "/conversations",
             icon: MessageCircle,
             isActive: url.startsWith("/conversations"),
         },
         {
-            title: "Discover",
+            title: "Escorts",
             href: "/escorts",
             icon: Compass,
             isActive: url.startsWith("/escorts"),
+        },
+        {
+            title: "Wallet",
+            href: "/wallets",
+            icon: Wallet,
+            isActive: url.startsWith("/wallets"),
         },
     ];
 }

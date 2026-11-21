@@ -1,5 +1,4 @@
 import {
-    ArrowLeft,
     CalendarDays,
     Check,
     CheckCircle2,
@@ -9,14 +8,17 @@ import {
     Sparkles,
     Wallet,
 } from "lucide-react";
-import { Head, Link, router, usePage } from "@inertiajs/react";
+import { Head, router, usePage } from "@inertiajs/react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/page-header";
+import PaymentMethodSelector from "@/components/partials/payments/payment-method-selector";
+
 import type {
     PricingPlan,
     SubscriptionPageProps,
     CustomMode,
-} from "@/types/subscription";
+    ManualPaymentIntent,
+} from "@/types/wallet";
 
 const MINIMUM_DAYS = 1;
 const MAXIMUM_DAYS = 3650;
@@ -29,6 +31,22 @@ type FlashProps = {
     };
 };
 
+type ManualReferenceResponse = {
+    bill_ref?: string;
+    amount?: number | string;
+    currency?: string;
+    expires_at?: string;
+    message?: string;
+    paybill?: string;
+};
+
+function getCsrfToken(): string {
+    return (
+        document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')
+            ?.content ?? ""
+    );
+}
+
 function formatDate(date?: string | null): string {
     if (!date) return "Not available";
 
@@ -40,6 +58,8 @@ function formatDate(date?: string | null): string {
         day: "numeric",
         month: "long",
         year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
     }).format(parsed);
 }
 
@@ -56,17 +76,31 @@ function formatMoney(amount: number, currency = "KES"): string {
     }
 }
 
+/**
+ * Keep this calculation consistent with EscortPaymentService.
+ * The backend rounds the final amount to a whole KES.
+ */
 function calculatePrice(
     days: number,
     unitPrice: number,
     discountPercent: number,
 ): number {
-    if (days < MINIMUM_DAYS || unitPrice <= 0) return 0;
+    if (
+        !Number.isInteger(days) ||
+        days < MINIMUM_DAYS ||
+        days > MAXIMUM_DAYS ||
+        !Number.isFinite(unitPrice) ||
+        unitPrice <= 0
+    ) {
+        return 0;
+    }
 
     const discount =
-        days >= DISCOUNT_START_DAYS ? Math.max(0, discountPercent) : 0;
+        days >= DISCOUNT_START_DAYS
+            ? Math.max(0, Math.min(discountPercent, 100))
+            : 0;
 
-    return Math.round(days * unitPrice * (1 - discount / 100) * 100) / 100;
+    return Math.round(days * unitPrice * (1 - discount / 100));
 }
 
 function calculateDaysFromAmount(
@@ -74,7 +108,14 @@ function calculateDaysFromAmount(
     unitPrice: number,
     discountPercent: number,
 ): number {
-    if (amount < unitPrice || unitPrice <= 0) return 0;
+    if (
+        !Number.isFinite(amount) ||
+        amount < unitPrice ||
+        !Number.isFinite(unitPrice) ||
+        unitPrice <= 0
+    ) {
+        return 0;
+    }
 
     let low = MINIMUM_DAYS;
     let high = MAXIMUM_DAYS;
@@ -99,8 +140,9 @@ export default function EscortSubscription({
     plans,
     subscription,
     phone: savedPhone,
+    paybill,
 }: SubscriptionPageProps) {
-    const { flash } = usePage<FlashProps>().props;
+    const { flash } = usePage<SubscriptionPageProps & FlashProps>().props;
 
     const [selectedPlan, setSelectedPlan] = useState<PricingPlan | null>(null);
     const [customMode, setCustomMode] = useState<CustomMode>("days");
@@ -109,6 +151,15 @@ export default function EscortSubscription({
     const [phone, setPhone] = useState(savedPhone ?? "");
     const [processing, setProcessing] = useState(false);
     const [requestError, setRequestError] = useState("");
+
+    const [paymentPaybill, setPaymentPaybill] = useState<string | null>(
+        paybill ?? null,
+    );
+
+    const [manualIntent, setManualIntent] =
+        useState<ManualPaymentIntent | null>(null);
+
+    const [manualIntentLoading, setManualIntentLoading] = useState(false);
 
     const isActive = subscription?.isActive === true;
 
@@ -172,7 +223,7 @@ export default function EscortSubscription({
 
         const subtotal = selectedDays * selectedPlan.unitPrice;
 
-        return Math.max(0, Math.round((subtotal - selectedPrice) * 100) / 100);
+        return Math.max(0, subtotal - selectedPrice);
     }, [selectedPlan, selectedDays, selectedPrice, isCustomPlan]);
 
     const customBudget = Number(customAmount) || 0;
@@ -184,14 +235,18 @@ export default function EscortSubscription({
         !isCustomPlan ||
         Boolean(
             selectedPlan &&
+            Number.isInteger(selectedDays) &&
             selectedDays >= MINIMUM_DAYS &&
             selectedDays <= MAXIMUM_DAYS &&
             selectedPrice >= selectedPlan.unitPrice &&
-            (customMode !== "amount" || customBudget >= selectedPrice),
+            (customMode !== "amount" ||
+                (Number.isFinite(customBudget) &&
+                    customBudget >= selectedPrice)),
         );
 
     const selectedPlanIsValid = Boolean(
         selectedPlan &&
+        Number.isInteger(selectedDays) &&
         selectedDays >= MINIMUM_DAYS &&
         selectedDays <= MAXIMUM_DAYS &&
         selectedPrice > 0 &&
@@ -203,7 +258,95 @@ export default function EscortSubscription({
         setCustomMode("days");
         setCustomDays("7");
         setCustomAmount("");
+        setManualIntent(null);
         setRequestError("");
+    }
+
+    function updateCustomDays(value: string) {
+        setCustomDays(value);
+        setManualIntent(null);
+        setRequestError("");
+    }
+
+    function updateCustomAmount(value: string) {
+        setCustomAmount(value);
+        setManualIntent(null);
+        setRequestError("");
+    }
+
+    async function requestManualPaymentReference() {
+        if (
+            !selectedPlan ||
+            !selectedPlanIsValid ||
+            manualIntentLoading ||
+            processing
+        ) {
+            return;
+        }
+
+        setManualIntentLoading(true);
+        setManualIntent(null);
+        setRequestError("");
+
+        try {
+            const response = await fetch(
+                "/escorts/subscription/manual-reference",
+                {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: {
+                        Accept: "application/json",
+                        "Content-Type": "application/json",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "X-CSRF-TOKEN": getCsrfToken(),
+                    },
+                    body: JSON.stringify({
+                        plan_id: selectedPlan.id,
+                        days: selectedDays,
+                    }),
+                },
+            );
+
+            const data = (await response.json()) as ManualReferenceResponse;
+
+            if (!response.ok) {
+                throw new Error(
+                    data.message ?? "Unable to generate a payment reference.",
+                );
+            }
+
+            const amount = Number(data.amount);
+
+            if (
+                typeof data.bill_ref !== "string" ||
+                !Number.isFinite(amount) ||
+                amount <= 0
+            ) {
+                throw new Error(
+                    "The server returned an invalid payment reference.",
+                );
+            }
+
+            if (data.paybill) {
+                setPaymentPaybill(data.paybill);
+            }
+
+            setManualIntent({
+                bill_ref: data.bill_ref,
+                amount,
+                currency: data.currency || selectedPlan.currency || "KES",
+                expires_at:
+                    typeof data.expires_at === "string" ? data.expires_at : "",
+            });
+        } catch (error) {
+            setRequestError(
+                error instanceof Error
+                    ? error.message
+                    : "Unable to generate a payment reference.",
+            );
+        } finally {
+            setManualIntentLoading(false);
+        }
     }
 
     function continueToPayment() {
@@ -218,6 +361,7 @@ export default function EscortSubscription({
 
         setProcessing(true);
         setRequestError("");
+        setManualIntent(null);
 
         router.post(
             "/escorts/subscription/checkout",
@@ -246,6 +390,56 @@ export default function EscortSubscription({
         );
     }
 
+    const stkContent = (
+        <div className="rounded-xl border border-border bg-card p-4">
+            <h3 className="font-semibold text-foreground">M-PESA STK Push</h3>
+
+            <p className="mt-1 text-sm text-muted-foreground">
+                Enter your M-PESA phone number. You will receive a payment
+                prompt on your phone.
+            </p>
+
+            <div className="mt-5">
+                <label
+                    htmlFor="payment-phone"
+                    className="mb-2 block text-sm font-medium text-foreground"
+                >
+                    M-PESA phone number
+                </label>
+
+                <input
+                    id="payment-phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(event) => {
+                        setPhone(event.target.value);
+                        setRequestError("");
+                    }}
+                    placeholder="e.g. 0712345678"
+                    autoComplete="tel"
+                    required
+                    className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary"
+                />
+
+                <p className="mt-2 text-xs text-muted-foreground">
+                    Your saved phone number is filled in automatically. You can
+                    change it before requesting payment.
+                </p>
+            </div>
+
+            <button
+                type="button"
+                onClick={continueToPayment}
+                disabled={!selectedPlanIsValid || processing}
+                className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+                <Wallet className="h-4 w-4" />
+
+                {processing ? "Sending payment request..." : "Request STK Push"}
+            </button>
+        </div>
+    );
+
     return (
         <>
             <Head title="Escort subscription" />
@@ -257,7 +451,6 @@ export default function EscortSubscription({
                     backHref="/settings/escorts"
                 />
 
-                {/* Flash messages */}
                 {flash?.success && (
                     <div
                         role="status"
@@ -326,7 +519,6 @@ export default function EscortSubscription({
                                 <p className="text-xs text-muted-foreground">
                                     Current plan
                                 </p>
-
                                 <p className="mt-1 font-semibold text-foreground">
                                     {subscription.plan || "Active subscription"}
                                 </p>
@@ -336,7 +528,6 @@ export default function EscortSubscription({
                                 <p className="text-xs text-muted-foreground">
                                     Expires on
                                 </p>
-
                                 <p className="mt-1 font-semibold text-foreground">
                                     {formatDate(subscription.expiresAt)}
                                 </p>
@@ -353,7 +544,6 @@ export default function EscortSubscription({
                         <h3 className="text-sm font-semibold text-foreground">
                             Subscription information
                         </h3>
-
                         <p className="mt-1 text-sm text-muted-foreground">
                             All plans provide the same listing services. Only
                             the subscription duration and price differ.
@@ -363,27 +553,24 @@ export default function EscortSubscription({
                     </div>
                 </section>
 
-                {/* Subscription plans */}
+                {/* Plans */}
                 <section className="space-y-5">
                     <div>
                         <h2 className="text-lg font-bold text-foreground">
                             Choose your listing duration
                         </h2>
-
                         <p className="mt-1 text-sm text-muted-foreground">
-                            KES 100 per day. Get 10% off when you subscribe for
-                            at least 7 days.
+                            Select a plan to see its price and any applicable
+                            discount.
                         </p>
                     </div>
 
                     {plans.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-border p-8 text-center">
                             <Wallet className="mx-auto h-9 w-9 text-muted-foreground" />
-
                             <h3 className="mt-3 font-semibold text-foreground">
                                 No subscription plans available
                             </h3>
-
                             <p className="mt-1 text-sm text-muted-foreground">
                                 There are currently no active escort listing
                                 plans. Please check again later.
@@ -396,10 +583,8 @@ export default function EscortSubscription({
                                     {presetPlans.map((plan) => {
                                         const isSelected =
                                             selectedPlan?.id === plan.id;
-
                                         const days = plan.days ?? 0;
                                         const subtotal = days * plan.unitPrice;
-
                                         const discount =
                                             days >= DISCOUNT_START_DAYS
                                                 ? plan.discountPercent
@@ -462,14 +647,13 @@ export default function EscortSubscription({
                                                                 plan.currency,
                                                             )}
                                                         </p>
-
                                                         <span className="inline-flex rounded-full bg-brand-green/10 px-2.5 py-1 text-xs font-semibold text-brand-green">
                                                             Save {discount}%
                                                         </span>
                                                     </div>
                                                 ) : (
                                                     <p className="mt-3 text-xs text-muted-foreground">
-                                                        Standard daily rate
+                                                        Standard plan price
                                                     </p>
                                                 )}
 
@@ -490,7 +674,6 @@ export default function EscortSubscription({
                                 </div>
                             )}
 
-                            {/* Custom plan */}
                             {customPlans.map((plan) => {
                                 const isSelected = selectedPlan?.id === plan.id;
 
@@ -515,12 +698,10 @@ export default function EscortSubscription({
                                                 <h3 className="font-bold text-foreground">
                                                     {plan.label}
                                                 </h3>
-
                                                 <p className="mt-1 text-sm text-muted-foreground">
                                                     Choose your own listing
                                                     duration
                                                 </p>
-
                                                 <p className="mt-1 text-sm font-semibold text-foreground">
                                                     {formatMoney(
                                                         plan.unitPrice,
@@ -559,7 +740,6 @@ export default function EscortSubscription({
                     <section className="rounded-2xl border border-border bg-card p-5">
                         <div className="flex items-center gap-2">
                             <CalendarDays className="h-5 w-5 text-primary" />
-
                             <h3 className="font-semibold text-foreground">
                                 Custom subscription
                             </h3>
@@ -579,7 +759,11 @@ export default function EscortSubscription({
                         <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
                             <button
                                 type="button"
-                                onClick={() => setCustomMode("days")}
+                                onClick={() => {
+                                    setCustomMode("days");
+                                    setManualIntent(null);
+                                }}
+                                aria-pressed={customMode === "days"}
                                 className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
                                     customMode === "days"
                                         ? "bg-card text-foreground shadow-sm"
@@ -591,7 +775,11 @@ export default function EscortSubscription({
 
                             <button
                                 type="button"
-                                onClick={() => setCustomMode("amount")}
+                                onClick={() => {
+                                    setCustomMode("amount");
+                                    setManualIntent(null);
+                                }}
+                                aria-pressed={customMode === "amount"}
                                 className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
                                     customMode === "amount"
                                         ? "bg-card text-foreground shadow-sm"
@@ -619,7 +807,7 @@ export default function EscortSubscription({
                                     step={1}
                                     value={customDays}
                                     onChange={(event) =>
-                                        setCustomDays(event.target.value)
+                                        updateCustomDays(event.target.value)
                                     }
                                     className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary"
                                     placeholder="Enter number of days"
@@ -646,7 +834,7 @@ export default function EscortSubscription({
                                     step="1"
                                     value={customAmount}
                                     onChange={(event) =>
-                                        setCustomAmount(event.target.value)
+                                        updateCustomAmount(event.target.value)
                                     }
                                     className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary"
                                     placeholder={`Minimum ${formatMoney(
@@ -668,7 +856,6 @@ export default function EscortSubscription({
                                 <p className="text-xs text-muted-foreground">
                                     Subscription duration
                                 </p>
-
                                 <p className="mt-1 text-xl font-bold text-foreground">
                                     {selectedDays}{" "}
                                     {selectedDays === 1 ? "day" : "days"}
@@ -679,7 +866,6 @@ export default function EscortSubscription({
                                 <p className="text-xs text-muted-foreground">
                                     Amount payable
                                 </p>
-
                                 <p className="mt-1 text-xl font-bold text-foreground">
                                     {formatMoney(
                                         selectedPrice,
@@ -695,7 +881,6 @@ export default function EscortSubscription({
                                     <span className="font-medium text-brand-green">
                                         Subscription discount
                                     </span>
-
                                     <span className="font-bold text-brand-green">
                                         -
                                         {formatMoney(
@@ -731,15 +916,15 @@ export default function EscortSubscription({
 
                 {/* Checkout */}
                 {selectedPlan && (
-                    <section className="rounded-2xl border border-primary/30 bg-primary/5 p-5">
+                    <section className="rounded-2xl border border-border bg-card p-5">
                         <div className="flex items-center gap-2">
                             <Sparkles className="h-5 w-5 text-primary" />
-
                             <h2 className="font-bold text-foreground">
                                 Your selected subscription
                             </h2>
                         </div>
 
+                        {/* Selected plan summary */}
                         <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                                 <p className="font-semibold text-foreground">
@@ -777,35 +962,29 @@ export default function EscortSubscription({
                             </div>
                         </div>
 
-                        <div className="mt-5 border-t border-primary/10 pt-5">
-                            <label
-                                htmlFor="payment-phone"
-                                className="mb-2 block text-sm font-medium text-foreground"
-                            >
-                                M-PESA phone number
-                            </label>
-
-                            <input
-                                id="payment-phone"
-                                type="tel"
-                                value={phone}
-                                onChange={(event) => {
-                                    setPhone(event.target.value);
-                                    setRequestError("");
-                                }}
-                                placeholder="e.g. 0712345678"
-                                autoComplete="tel"
-                                required
-                                className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary"
+                        {/* Shared payment method selector */}
+                        <div className="mt-6">
+                            <PaymentMethodSelector
+                                key={`${selectedPlan.id}-${selectedDays}-${selectedPrice}`}
+                                amount={selectedPrice}
+                                currency={selectedPlan.currency}
+                                paybill={paymentPaybill}
+                                stkContent={stkContent}
+                                manualIntent={manualIntent}
+                                manualIntentLoading={manualIntentLoading}
+                                disabled={
+                                    !selectedPlanIsValid ||
+                                    processing ||
+                                    manualIntentLoading
+                                }
+                                onGenerateReference={
+                                    requestManualPaymentReference
+                                }
+                                onMethodChange={() => setRequestError("")}
                             />
-
-                            <p className="mt-2 text-xs text-muted-foreground">
-                                Your saved phone number is filled in
-                                automatically. You can change it before
-                                requesting payment.
-                            </p>
                         </div>
 
+                        {/* Errors */}
                         {requestError && (
                             <div
                                 role="alert"
@@ -814,39 +993,8 @@ export default function EscortSubscription({
                                 {requestError}
                             </div>
                         )}
-
-                        <div className="mt-5">
-                            <button
-                                type="button"
-                                onClick={continueToPayment}
-                                disabled={!selectedPlanIsValid || processing}
-                                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-                            >
-                                <Wallet className="h-4 w-4" />
-
-                                {processing
-                                    ? "Sending payment request..."
-                                    : "Continue to payment"}
-                            </button>
-
-                            <p className="mt-3 text-xs text-muted-foreground">
-                                An M-PESA prompt will be sent to the phone
-                                number above. Your subscription activates only
-                                after successful payment confirmation.
-                            </p>
-                        </div>
                     </section>
                 )}
-
-                <div>
-                    <Link
-                        href="/settings/escorts"
-                        className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition hover:text-foreground"
-                    >
-                        <ArrowLeft className="h-4 w-4" />
-                        Back to escort dashboard
-                    </Link>
-                </div>
             </div>
         </>
     );

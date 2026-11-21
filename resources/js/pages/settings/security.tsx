@@ -63,97 +63,103 @@ export default function Security(props: Props) {
                     backHrefTitle="Back to Settings"
                 />
 
-                {/* ── Password ───────────────────────────── */}
-                <Form
-                    {...SecurityController.update.form()}
-                    options={{
-                        preserveScroll: true,
-                    }}
-                    resetOnError={[
-                        "password",
-                        "password_confirmation",
-                        "current_password",
-                    ]}
-                    resetOnSuccess
-                    onError={(errors) => {
-                        if (errors.password) {
-                            passwordInput.current?.focus();
-                        }
+                <div className="overflow-hidden rounded-xl border border-border bg-card/40 p-5">
+                    {/* ── Password ───────────────────────────── */}
+                    <Form
+                        {...SecurityController.update.form()}
+                        options={{
+                            preserveScroll: true,
+                        }}
+                        resetOnError={[
+                            "password",
+                            "password_confirmation",
+                            "current_password",
+                        ]}
+                        resetOnSuccess
+                        onError={(errors) => {
+                            if (errors.password) {
+                                passwordInput.current?.focus();
+                            }
 
-                        if (errors.current_password) {
-                            currentPasswordInput.current?.focus();
-                        }
-                    }}
-                    className="space-y-8"
-                >
-                    {({ errors, processing }) => (
-                        <>
-                            <Section
-                                title="Update password"
-                                description="Ensure your account is using a long, random password to stay secure."
-                            >
-                                <div className="grid grid-cols-1 gap-6">
-                                    <Field
-                                        label="Current password"
-                                        htmlFor="current_password"
-                                        icon={Lock}
-                                        error={errors.current_password}
-                                    >
-                                        <PasswordInput
-                                            id="current_password"
-                                            ref={currentPasswordInput}
-                                            name="current_password"
-                                            autoComplete="current-password"
-                                            placeholder="Current password"
-                                        />
-                                    </Field>
-
-                                    <Field
-                                        label="New password"
-                                        htmlFor="password"
-                                        icon={KeyRound}
-                                        hint="Use a long, random password to keep your account secure."
-                                        error={errors.password}
-                                    >
-                                        <PasswordInput
-                                            id="password"
-                                            ref={passwordInput}
-                                            name="password"
-                                            autoComplete="new-password"
-                                            placeholder="New password"
-                                            passwordrules={props.passwordRules}
-                                        />
-                                    </Field>
-
-                                    <Field
-                                        label="Confirm password"
-                                        htmlFor="password_confirmation"
-                                        icon={ShieldCheck}
-                                        error={errors.password_confirmation}
-                                    >
-                                        <PasswordInput
-                                            id="password_confirmation"
-                                            name="password_confirmation"
-                                            autoComplete="new-password"
-                                            placeholder="Confirm password"
-                                            passwordrules={props.passwordRules}
-                                        />
-                                    </Field>
-                                </div>
-                            </Section>
-
-                            <div className="flex items-center gap-4">
-                                <Button
-                                    disabled={processing}
-                                    data-test="update-password-button"
-                                    className="rounded-full bg-primary px-8 py-2 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
+                            if (errors.current_password) {
+                                currentPasswordInput.current?.focus();
+                            }
+                        }}
+                        className="space-y-8"
+                    >
+                        {({ errors, processing }) => (
+                            <>
+                                <Section
+                                    title="Update password"
+                                    description="Ensure your account is using a long, random password to stay secure."
                                 >
-                                    Save changes
-                                </Button>
-                            </div>
-                        </>
-                    )}
-                </Form>
+                                    <div className="grid grid-cols-1 gap-6">
+                                        <Field
+                                            label="Current password"
+                                            htmlFor="current_password"
+                                            icon={Lock}
+                                            error={errors.current_password}
+                                        >
+                                            <PasswordInput
+                                                id="current_password"
+                                                ref={currentPasswordInput}
+                                                name="current_password"
+                                                autoComplete="current-password"
+                                                placeholder="Current password"
+                                            />
+                                        </Field>
+
+                                        <Field
+                                            label="New password"
+                                            htmlFor="password"
+                                            icon={KeyRound}
+                                            hint="Use a long, random password to keep your account secure."
+                                            error={errors.password}
+                                        >
+                                            <PasswordInput
+                                                id="password"
+                                                ref={passwordInput}
+                                                name="password"
+                                                autoComplete="new-password"
+                                                placeholder="New password"
+                                                passwordrules={
+                                                    props.passwordRules
+                                                }
+                                            />
+                                        </Field>
+
+                                        <Field
+                                            label="Confirm password"
+                                            htmlFor="password_confirmation"
+                                            icon={ShieldCheck}
+                                            error={errors.password_confirmation}
+                                        >
+                                            <PasswordInput
+                                                id="password_confirmation"
+                                                name="password_confirmation"
+                                                autoComplete="new-password"
+                                                placeholder="Confirm password"
+                                                passwordrules={
+                                                    props.passwordRules
+                                                }
+                                            />
+                                        </Field>
+                                    </div>
+                                </Section>
+
+                                <div className="flex items-center gap-4">
+                                    <Button
+                                        disabled={processing}
+                                        data-test="update-password-button"
+                                        className="rounded-full bg-primary px-8 py-2 text-sm font-bold text-white shadow-glow-pink transition-all hover:scale-[1.02] hover:shadow-glow-pink-strong"
+                                    >
+                                        Save changes
+                                    </Button>
+                                </div>
+                            </>
+                        )}
+                    </Form>
+                </div>
 
                 {/* ── Two-factor ─────────────────────────── */}
                 <div className="border-t border-border pt-8">

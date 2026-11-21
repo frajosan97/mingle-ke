@@ -1,5 +1,7 @@
-import { InertiaLinkProps, Link, router, usePage } from "@inertiajs/react";
-import { type PropsWithChildren, useEffect, useState } from "react";
+import { type CSSProperties, type PropsWithChildren, useState } from "react";
+
+import { Link, router, usePage, type InertiaLinkProps } from "@inertiajs/react";
+
 import {
     Search,
     LogOut,
@@ -8,13 +10,18 @@ import {
     ShieldCheck,
     MessageCircle,
     Wallet,
+    GripVertical,
     PanelLeftClose,
     PanelLeftOpen,
     type LucideIcon,
 } from "lucide-react";
 
 import { useCurrentUrl } from "@/hooks/use-current-url";
+import { useSidebarCollapse } from "@/hooks/use-sidebar-collapse";
+import { useSidebarDrag } from "@/hooks/use-sidebar-drag";
+
 import { cn } from "@/lib/utils";
+
 import { edit as editAppearance } from "@/routes/appearance";
 import { edit as editProfile } from "@/routes/profile";
 import { edit as editSecurity } from "@/routes/security";
@@ -39,7 +46,28 @@ interface AuthUser {
     avatar_url?: string | null;
 }
 
-const SIDEBAR_STORAGE_KEY = "settings-sidebar-collapsed";
+interface PageProps {
+    [key: string]: unknown;
+
+    auth: {
+        user: AuthUser | null;
+    };
+}
+
+interface NavigationItemProps {
+    item: SidebarNavItem;
+    isActive: boolean;
+    collapsed?: boolean;
+}
+
+const SIDEBAR_CONFIG = {
+    storageKey: "settings-sidebar-width",
+    defaultWidth: 375,
+    minWidth: 260,
+    maxWidth: 550,
+} as const;
+
+const COLLAPSE_STORAGE_KEY = "settings-sidebar-collapsed";
 
 const SIDEBAR_NAV_ITEMS: SidebarNavItem[] = [
     {
@@ -88,20 +116,21 @@ const SIDEBAR_NAV_ITEMS: SidebarNavItem[] = [
     },
 ];
 
-interface NavigationItemProps {
-    item: SidebarNavItem;
-    isActive: boolean;
-    isCollapsed: boolean;
-}
-
-function NavigationItem({ item, isActive, isCollapsed }: NavigationItemProps) {
+function NavigationItem({
+    item,
+    isActive,
+    collapsed = false,
+}: NavigationItemProps) {
     const Icon = item.icon;
     const isLogout = item.id === "logout";
 
     const className = cn(
-        "group flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left transition-colors",
-        isCollapsed && "md:justify-center md:px-2",
+        "group flex w-full items-center rounded-xl py-3 text-left transition-colors duration-200",
+        collapsed
+            ? "justify-start gap-4 px-4 md:justify-center md:gap-0 md:px-2"
+            : "gap-4 px-4",
         isActive ? "bg-accent" : "hover:bg-accent/50",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
     );
 
     const content = (
@@ -109,7 +138,7 @@ function NavigationItem({ item, isActive, isCollapsed }: NavigationItemProps) {
             <Icon
                 aria-hidden="true"
                 className={cn(
-                    "h-6 w-6 shrink-0",
+                    "h-6 w-6 shrink-0 transition-colors duration-200",
                     isActive
                         ? "text-foreground"
                         : "text-muted-foreground group-hover:text-foreground",
@@ -117,7 +146,7 @@ function NavigationItem({ item, isActive, isCollapsed }: NavigationItemProps) {
                 strokeWidth={1.5}
             />
 
-            <div className={cn("min-w-0 flex-1", isCollapsed && "md:hidden")}>
+            <div className={cn("min-w-0 flex-1", collapsed && "md:hidden")}>
                 <p
                     className={cn(
                         "truncate text-[15px] font-semibold",
@@ -133,8 +162,6 @@ function NavigationItem({ item, isActive, isCollapsed }: NavigationItemProps) {
                     {item.description}
                 </p>
             </div>
-
-            {isCollapsed && <span className="sr-only">{item.title}</span>}
         </>
     );
 
@@ -143,7 +170,8 @@ function NavigationItem({ item, isActive, isCollapsed }: NavigationItemProps) {
             <button
                 type="button"
                 onClick={() => router.post("/logout")}
-                title={isCollapsed ? item.title : undefined}
+                title={collapsed ? item.title : undefined}
+                aria-label={item.title}
                 className={className}
             >
                 {content}
@@ -155,7 +183,7 @@ function NavigationItem({ item, isActive, isCollapsed }: NavigationItemProps) {
         <Link
             href={item.href}
             aria-current={isActive ? "page" : undefined}
-            title={isCollapsed ? item.title : undefined}
+            title={collapsed ? item.title : undefined}
             className={className}
         >
             {content}
@@ -172,57 +200,68 @@ export default function SettingsLayout({
     const {
         props: { auth },
         component,
-    } = usePage<{
-        auth: { user: AuthUser | null };
-    }>();
+    } = usePage<PageProps>();
 
     const [search, setSearch] = useState("");
-    const [isCollapsed, setIsCollapsed] = useState(false);
+
+    const { isCollapsed, toggleCollapse } = useSidebarCollapse({
+        storageKey: COLLAPSE_STORAGE_KEY,
+    });
+
+    const {
+        width: sidebarWidth,
+        isDragging,
+        sidebarRef,
+        resizeHandleProps,
+    } = useSidebarDrag({
+        enabled: !isCollapsed && showSetting,
+        ...SIDEBAR_CONFIG,
+    });
 
     const isOnSubPage = component !== "settings/index";
 
     const user = auth?.user;
+
     const displayName = user?.name || "Settings";
     const avatarUrl = user?.avatar_url;
     const initial = displayName.charAt(0).toUpperCase();
 
+    const normalizedSearch = search.trim().toLowerCase();
+
     const filteredMenu = SIDEBAR_NAV_ITEMS.filter((item) => {
-        const query = search.trim().toLowerCase();
+        if (!normalizedSearch) return true;
 
         return (
-            !query ||
-            item.title.toLowerCase().includes(query) ||
-            item.description.toLowerCase().includes(query)
+            item.title.toLowerCase().includes(normalizedSearch) ||
+            item.description.toLowerCase().includes(normalizedSearch)
         );
     });
 
-    // Restore and persist sidebar preference.
-    useEffect(() => {
-        try {
-            setIsCollapsed(
-                localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true",
-            );
-        } catch {
-            // Storage may be unavailable.
-        }
-    }, []);
+    const sidebarStyle = {
+        "--sidebar-width": `${sidebarWidth}px`,
+    } as CSSProperties;
 
-    useEffect(() => {
-        try {
-            localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isCollapsed));
-        } catch {
-            // Storage may be unavailable.
-        }
-    }, [isCollapsed]);
+    // Collapse state only affects the desktop layout.
+    const desktopCollapsed = isCollapsed;
 
     return (
         <>
             {showSetting && (
                 <aside
+                    ref={sidebarRef}
                     aria-label="Settings navigation"
+                    style={sidebarStyle}
                     className={cn(
-                        "flex w-full shrink-0 flex-col border-r border-border bg-card transition-[width] duration-300 ease-in-out",
-                        isCollapsed ? "md:w-20" : "md:w-[380px] lg:w-[420px]",
+                        "relative flex w-full shrink-0 flex-col border-r border-border bg-card",
+                        "md:w-[var(--sidebar-width)]",
+                        !isDragging &&
+                            "transition-[width] duration-300 ease-in-out",
+                        isDragging && "select-none",
+
+                        // Desktop-only collapsed width.
+                        desktopCollapsed && "md:!w-[76px]",
+
+                        // Preserve mobile navigation.
                         isOnSubPage && "hidden md:flex",
                     )}
                 >
@@ -230,22 +269,27 @@ export default function SettingsLayout({
                     <header
                         className={cn(
                             "flex h-[60px] shrink-0 items-center justify-between border-b border-border/50 px-5",
-                            isCollapsed && "md:justify-center md:px-2",
+                            desktopCollapsed && "md:justify-center md:px-2",
                         )}
                     >
+                        {/* User name / Settings title */}
                         <h1
                             className={cn(
                                 "truncate text-lg font-semibold text-foreground",
-                                isCollapsed && "md:hidden",
+                                desktopCollapsed && "md:hidden",
                             )}
                         >
                             {displayName}
                         </h1>
 
+                        {/* Desktop-only collapse button */}
                         <button
                             type="button"
-                            onClick={() =>
-                                setIsCollapsed((previous) => !previous)
+                            onClick={toggleCollapse}
+                            title={
+                                isCollapsed
+                                    ? "Expand sidebar"
+                                    : "Collapse sidebar"
                             }
                             aria-label={
                                 isCollapsed
@@ -253,24 +297,28 @@ export default function SettingsLayout({
                                     : "Collapse sidebar"
                             }
                             aria-expanded={!isCollapsed}
-                            title={
-                                isCollapsed
-                                    ? "Expand sidebar"
-                                    : "Collapse sidebar"
-                            }
-                            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:flex"
+                            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:flex"
                         >
                             {isCollapsed ? (
-                                <PanelLeftOpen className="h-5 w-5" />
+                                <PanelLeftOpen
+                                    aria-hidden="true"
+                                    className="h-5 w-5"
+                                />
                             ) : (
-                                <PanelLeftClose className="h-5 w-5" />
+                                <PanelLeftClose
+                                    aria-hidden="true"
+                                    className="h-5 w-5"
+                                />
                             )}
                         </button>
                     </header>
 
                     {/* Sidebar Search */}
                     <div
-                        className={cn("px-3 py-3", isCollapsed && "md:hidden")}
+                        className={cn(
+                            "px-3 py-3",
+                            desktopCollapsed && "md:hidden",
+                        )}
                     >
                         <label
                             htmlFor="settings-search"
@@ -291,21 +339,26 @@ export default function SettingsLayout({
                                 placeholder="Search settings..."
                                 autoComplete="off"
                                 spellCheck={false}
-                                className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                                className="w-full min-w-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                             />
                         </label>
                     </div>
 
                     {/* Sidebar Content */}
-                    <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-4">
+                    <div
+                        className={cn(
+                            "min-h-0 flex-1 overflow-y-auto scrollbar-thin pb-4",
+                            desktopCollapsed ? "px-3 md:px-2" : "px-3",
+                        )}
+                    >
                         {/* User Avatar */}
                         <div
                             className={cn(
                                 "mx-auto mb-8 mt-4 flex w-32 items-center justify-center",
-                                isCollapsed && "md:hidden",
+                                desktopCollapsed && "md:hidden",
                             )}
                         >
-                            <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-4 border-background bg-primary shadow-xl ring-1 ring-border/50 transition-transform hover:scale-105">
+                            <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-4 border-background bg-primary shadow-xl ring-1 ring-border/50 transition-transform duration-300 hover:scale-105">
                                 {avatarUrl ? (
                                     <img
                                         src={avatarUrl}
@@ -328,25 +381,81 @@ export default function SettingsLayout({
                             aria-label="Settings"
                             className="flex flex-col gap-1.5"
                         >
-                            {filteredMenu.length > 0 ? (
-                                filteredMenu.map((item) => (
-                                    <NavigationItem
-                                        key={item.id}
-                                        item={item}
-                                        isCollapsed={isCollapsed}
-                                        isActive={
-                                            item.id !== "logout" &&
-                                            isCurrentOrParentUrl(item.href)
-                                        }
-                                    />
-                                ))
-                            ) : (
-                                <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                                    No settings found for &ldquo;{search}&rdquo;
-                                </p>
-                            )}
+                            {filteredMenu.length > 0
+                                ? filteredMenu.map((item) => (
+                                      <NavigationItem
+                                          key={item.id}
+                                          item={item}
+                                          isActive={
+                                              item.id !== "logout" &&
+                                              isCurrentOrParentUrl(item.href)
+                                          }
+                                          collapsed={desktopCollapsed}
+                                      />
+                                  ))
+                                : !desktopCollapsed && (
+                                      <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                                          No settings found for &ldquo;
+                                          {search}&rdquo;
+                                      </p>
+                                  )}
                         </nav>
                     </div>
+
+                    {/* Desktop-only Resize Handle */}
+                    {!isCollapsed && (
+                        <div
+                            {...resizeHandleProps}
+                            role="separator"
+                            aria-label="Resize settings sidebar. Double-click to reset."
+                            aria-orientation="vertical"
+                            aria-valuemin={SIDEBAR_CONFIG.minWidth}
+                            aria-valuemax={SIDEBAR_CONFIG.maxWidth}
+                            aria-valuenow={sidebarWidth}
+                            aria-valuetext={`${sidebarWidth} pixels`}
+                            title="Drag to resize · Double-click to reset"
+                            className={cn(
+                                "group absolute -right-2 top-0 z-40 hidden h-full w-4 cursor-col-resize touch-none items-center justify-center outline-none md:flex",
+                                "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                                isDragging && "z-50",
+                            )}
+                        >
+                            {/* Divider */}
+                            <div
+                                aria-hidden="true"
+                                className={cn(
+                                    "absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full transition-colors",
+                                    isDragging
+                                        ? "bg-primary shadow-[0_0_14px_3px] shadow-primary/40"
+                                        : "bg-transparent group-hover:bg-primary/60",
+                                )}
+                            />
+
+                            {/* Grip */}
+                            <div
+                                aria-hidden="true"
+                                className={cn(
+                                    "relative flex h-12 w-5 items-center justify-center rounded-full border border-border/80 bg-background text-muted-foreground shadow-md transition-all",
+                                    "scale-90 opacity-0 group-hover:scale-100 group-hover:opacity-100",
+                                    isDragging &&
+                                        "scale-110 border-primary bg-primary text-primary-foreground opacity-100 shadow-lg shadow-primary/30",
+                                )}
+                            >
+                                <GripVertical className="h-3.5 w-3.5" />
+                            </div>
+
+                            {/* Width Indicator */}
+                            <div
+                                aria-hidden="true"
+                                className={cn(
+                                    "pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 translate-y-8 rounded-md border border-border bg-popover px-2 py-1 text-[10px] font-semibold tabular-nums text-popover-foreground shadow-lg transition-opacity",
+                                    isDragging ? "opacity-100" : "opacity-0",
+                                )}
+                            >
+                                {sidebarWidth}px
+                            </div>
+                        </div>
+                    )}
                 </aside>
             )}
 

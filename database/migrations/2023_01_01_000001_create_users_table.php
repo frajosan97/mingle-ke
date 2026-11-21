@@ -223,13 +223,6 @@ return new class extends Migration {
             $table->timestamp('approved_at')->nullable();
             $table->boolean('is_featured')->default(false);
 
-            // Listing
-            $table->enum('listing_tier', ['free', 'escort'])
-                ->default('free');
-
-            $table->timestamp('listing_started_at')->nullable();
-            $table->timestamp('listing_expires_at')->nullable();
-
             $table->boolean('phone_visible')->default(false);
 
             // Statistics
@@ -253,16 +246,6 @@ return new class extends Migration {
             $table->index(
                 'is_featured',
                 'profiles_featured_idx'
-            );
-
-            $table->index(
-                ['listing_tier', 'listing_expires_at'],
-                'profiles_listing_tier_expires_idx'
-            );
-
-            $table->index(
-                ['listing_tier', 'is_approved'],
-                'profiles_listing_tier_approved_idx'
             );
         });
 

@@ -1,32 +1,7 @@
-// resources/js/types/coin.ts
 
-export interface AuthUser {
-    id: number;
-    name: string;
-    email: string;
-    avatar_url?: string | null;
-    coins: number;
-    tier: string;
-    is_verified: boolean;
-    invite_code?: string | null;
-}
+import type { CoinPackage } from "@/types/wallet";
 
-export interface SharedProps {
-    auth: { user: AuthUser | null };
-    flash?: { success?: string; error?: string };
-    checkout_request_id?: string | null;
-    billRef?: string;
-    paybill?: string;
-    [key: string]: unknown;
-}
-
-export interface CoinPackage {
-    id: number;
-    coins: number | "custom";
-    price: number | null;
-    bonus?: string;
-    popular?: boolean;
-}
+export type { CoinPackage } from "@/types/wallet";
 
 // Base rate: KES 1 = 1 coin.
 export const COIN_PACKAGES: CoinPackage[] = [
@@ -41,7 +16,7 @@ export const COIN_PACKAGES: CoinPackage[] = [
 ];
 
 export const FALLBACK_INVITE_CODE = "ZT6AZEKT";
-export const BASE_RATE = 1.0; // KES per coin before bonus
+export const BASE_RATE = 1.0;
 export const MINIMUM_COINS = 20;
 
 export function bonusForCoins(coins: number): number {
@@ -51,14 +26,15 @@ export function bonusForCoins(coins: number): number {
     if (coins >= 280) return 0.12;
     if (coins >= 180) return 0.09;
     if (coins >= 110) return 0.10;
-    if (coins >= 50) return 0.0;
-    return 0.0;
+    return 0;
 }
 
 export function priceForCoins(coins: number): number {
     if (coins <= 0) return 0;
+
     const bonus = bonusForCoins(coins);
     const paidCoins = coins / (1 + bonus);
+
     return Math.ceil(paidCoins * BASE_RATE);
 }
 
@@ -69,51 +45,8 @@ export function effectiveRate(coins: number): number {
 
 export function bonusLabel(coins: number): string | null {
     const bonus = bonusForCoins(coins);
+
     if (bonus <= 0) return null;
+
     return `+${Math.round(bonus * 100)}%`;
-}
-
-export type CoinTxType =
-    | "purchase"
-    | "bonus"
-    | "invite"
-    | "spend"
-    | "refund";
-
-export type CoinTxStatus =
-    | "pending"
-    | "processing"
-    | "completed"
-    | "failed"
-    | "cancelled";
-
-export interface CoinTransaction {
-    id: number;
-    type: CoinTxType;
-    status: CoinTxStatus;
-    coins: number;
-    amount_kes: number;
-    method: string;
-    mpesa_receipt: string | null;
-    package_id: number | null;
-    phone: string | null;
-    created_at: string | null;
-    failure_reason: string | null;
-}
-
-export interface CoinHistorySummary {
-    coins_balance: number;
-    total_purchased: number;
-    total_spent_kes: number;
-}
-
-export interface Paginated<T> {
-    data: T[];
-    current_page: number;
-    last_page: number;
-    per_page: number;
-    total: number;
-    from: number | null;
-    to: number | null;
-    links: { url: string | null; label: string; active: boolean }[];
 }

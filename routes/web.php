@@ -76,6 +76,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
             Route::get('/manage', 'manage')->name('manage');
             Route::get('/subscription', 'subscription')->name('subscription');
+            Route::post('/subscription/manual-reference', 'manualReference')->name('subscription.manual-reference');
             Route::post('/subscription/checkout', 'checkoutSubscription')->name('subscription.checkout');
 
             Route::post('/{user}/like', 'like')->whereNumber('user')->name('like');
@@ -97,6 +98,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::prefix('coins')->name('coins.')->group(function () {
                 Route::get('/', 'coins')->name('index');
                 Route::post('/purchase', 'purchaseCoins')->name('purchase');
+                Route::post('/bill-ref', 'generateBillRef')->name('bill-ref');
             });
 
             Route::get('/points', 'points')->name('points');

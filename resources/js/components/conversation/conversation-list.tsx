@@ -449,7 +449,7 @@ export default function ConversationList({
     if (conversations.length === 0) {
         return (
             <div className="relative flex h-full flex-col items-center justify-center gap-6 overflow-hidden px-6 text-center">
-                <EmptyState description="No conversations yet!" />
+                <EmptyState description="No conversations yet" />
             </div>
         );
     }

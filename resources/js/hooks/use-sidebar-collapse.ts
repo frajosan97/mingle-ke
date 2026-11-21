@@ -1,54 +1,67 @@
-import { useEffect, useState } from "react";
 
-const STORAGE_KEY = "settings-sidebar-collapsed";
+import { useCallback, useEffect, useState } from "react";
 
-export function useSidebarCollapse() {
-    const [isCollapsed, setIsCollapsed] = useState(false);
+interface UseSidebarCollapseOptions {
+    storageKey?: string;
+    defaultCollapsed?: boolean;
+}
 
-    // Restore saved collapse preference.
+export function useSidebarCollapse({
+    storageKey = "settings-sidebar-collapsed",
+    defaultCollapsed = false,
+}: UseSidebarCollapseOptions = {}) {
+    const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+
+    // Restore the saved collapse preference.
     useEffect(() => {
         try {
-            const saved = localStorage.getItem(STORAGE_KEY);
+            const saved = localStorage.getItem(storageKey);
 
-            setIsCollapsed(saved === "true");
+            setIsCollapsed(
+                saved === null ? defaultCollapsed : saved === "true",
+            );
         } catch {
             // Local storage may be unavailable.
+            setIsCollapsed(defaultCollapsed);
         }
-    }, []);
+    }, [storageKey, defaultCollapsed]);
 
-    const toggleCollapse = () => {
+    // Update state and persist the preference.
+    const setCollapsed = useCallback(
+        (collapsed: boolean) => {
+            setIsCollapsed(collapsed);
+
+            try {
+                localStorage.setItem(storageKey, String(collapsed));
+            } catch {
+                // Local storage may be unavailable.
+            }
+        },
+        [storageKey],
+    );
+
+    // Toggle collapse state.
+    const toggleCollapse = useCallback(() => {
         setIsCollapsed((current) => {
             const next = !current;
 
             try {
-                localStorage.setItem(STORAGE_KEY, String(next));
+                localStorage.setItem(storageKey, String(next));
             } catch {
                 // Local storage may be unavailable.
             }
 
             return next;
         });
-    };
+    }, [storageKey]);
 
-    const expand = () => {
-        setIsCollapsed(false);
+    const expand = useCallback(() => {
+        setCollapsed(false);
+    }, [setCollapsed]);
 
-        try {
-            localStorage.setItem(STORAGE_KEY, "false");
-        } catch {
-            // Local storage may be unavailable.
-        }
-    };
-
-    const collapse = () => {
-        setIsCollapsed(true);
-
-        try {
-            localStorage.setItem(STORAGE_KEY, "true");
-        } catch {
-            // Local storage may be unavailable.
-        }
-    };
+    const collapse = useCallback(() => {
+        setCollapsed(true);
+    }, [setCollapsed]);
 
     return {
         isCollapsed,
